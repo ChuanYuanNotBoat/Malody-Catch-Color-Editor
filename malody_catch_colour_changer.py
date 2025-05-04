@@ -20,7 +20,7 @@ def process_beat(beat):
 
 def process_file(file_path):
     try:
-        # 创建备份文件
+        # 创建备份
         backup_path = file_path + ".bak"
         shutil.copyfile(file_path, backup_path)
 
@@ -43,7 +43,7 @@ def process_file(file_path):
 
 
 if __name__ == "__main__":
-    # 关键修复：获取脚本所在目录（而非默认工作目录）
+    # 获取脚本所在目录
     script_dir = os.path.dirname(os.path.abspath(__file__))
 
     # 切换到脚本目录
