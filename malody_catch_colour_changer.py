@@ -5,11 +5,20 @@ import shutil
 import sys
 import locale
 
-# 检测系统语言
-system_language = locale.getdefaultlocale()[0]  # 获取系统语言环境
-language = 'zh' if system_language and system_language.startswith('zh') else 'en'
+def detect_language():
+    try:
+        lang_tuple = locale.getlocale()
+        lang_code = lang_tuple[0] if lang_tuple and lang_tuple[0] else 'en_US'
+    except Exception:
+        lang_code = 'en_US'
+    # 只要包含 "zh" 或 "chinese" 都判定为中文，其余一律英文
+    if lang_code and ('zh' in lang_code.lower() or 'chinese' in lang_code.lower()):
+        return 'zh'
+    else:
+        return 'en'
 
-# 定义翻译
+language = detect_language()
+
 translations = {
     'backup_created': {
         'zh': "成功处理: {file} (备份已保存为 {backup})",
@@ -46,8 +55,13 @@ translations = {
 }
 
 def translate(key, **kwargs):
-    """根据语言返回翻译后的文本"""
-    return translations[key][language].format(**kwargs)
+    if key not in translations:
+        return key
+    lang_map = translations[key]
+    if language == 'zh' and 'zh' in lang_map:
+        return lang_map['zh'].format(**kwargs)
+    else:
+        return lang_map.get('en', key).format(**kwargs)
 
 def adjust_denominator(numerator, denominator):
     gcd_val = math.gcd(numerator, denominator)
@@ -62,46 +76,30 @@ def process_beat(beat):
 
 def process_file(file_path):
     try:
-        # 创建备份
         backup_path = file_path + ".bak"
         shutil.copyfile(file_path, backup_path)
-
-        # 读取并处理数据
         with open(file_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
-
         for note in data.get('note', []):
             if 'beat' in note:
                 note['beat'] = process_beat(note['beat'])
-
-        # 覆盖写入原文件
         with open(file_path, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
-
         print(translate('backup_created', file=os.path.basename(file_path), backup=os.path.basename(backup_path)))
-
     except Exception as e:
         print(translate('process_failed', file=os.path.basename(file_path), error=str(e)))
 
 if __name__ == "__main__":
-    # 获取脚本所在目录
     script_dir = os.path.dirname(os.path.abspath(__file__))
-
-    # 切换到脚本目录
     os.chdir(script_dir)
-
-    # 查找 .mc 文件
     mc_files = [f for f in os.listdir(script_dir) if f.endswith('.mc')]
-
     if not mc_files:
         print(translate('no_mc_files'))
         sys.exit(1)
-
     print(translate('operation_confirm'))
     for f in mc_files:
         print(f"  - {f}")
     confirm = input(translate('input_confirm'))
-
     if confirm.lower() == 'y':
         for filename in mc_files:
             process_file(os.path.join(script_dir, filename))
