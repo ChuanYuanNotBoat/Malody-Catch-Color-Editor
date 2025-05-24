@@ -50,7 +50,7 @@ class _EditorPageState extends State<EditorPage> {
   late void Function() _deleteHandler;
   List<double>? customDivides;
 
-  // 播放与时间滚动
+  // 播放相关
   double currentTime = 0;
   double songDuration = 180.0;
   bool isPlaying = false;
@@ -58,7 +58,7 @@ class _EditorPageState extends State<EditorPage> {
   double canvasHeight = 720;
   double totalHeight = 1280.0 * 32;
 
-  // 可编辑区x宽度
+  // 可编辑区宽度
   final double editorWidth = 512;
 
   @override

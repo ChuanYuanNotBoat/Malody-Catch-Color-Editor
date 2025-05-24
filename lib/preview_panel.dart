@@ -4,7 +4,7 @@ import 'editor_canvas.dart';
 class PreviewPanel extends StatelessWidget {
   final List<Note> notes;
   final int currentBar;
-  final int previewRangeBars; // 如4，展示正负4小节
+  final int previewRangeBars;
   final int barCount;
   final double width;
   final double height;
@@ -23,7 +23,10 @@ class PreviewPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     int startBar = (currentBar - previewRangeBars).clamp(0, barCount - 1);
     int endBar = (currentBar + previewRangeBars).clamp(0, barCount - 1);
-    List<Note> showNotes = notes.where((n) => n.bar >= startBar && n.bar <= endBar).toList();
+    List<Note> showNotes = notes.where((n) {
+      int nbar = (n.y ~/ 1280);
+      return nbar >= startBar && nbar <= endBar;
+    }).toList();
 
     return Container(
       width: width,
@@ -57,8 +60,9 @@ class _PreviewPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     int barRange = endBar - startBar + 1;
     for (final note in showNotes) {
+      int nbar = (note.y ~/ 1280);
       double y = size.height -
-          ((note.bar - startBar) / barRange) * size.height; // 竖直分布
+          ((nbar - startBar) / (barRange == 0 ? 1 : barRange)) * size.height;
       double x = note.x / 512.0 * size.width;
       canvas.drawCircle(Offset(x, y), 2, Paint()..color = getNoteColor(note));
     }
