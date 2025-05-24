@@ -14,47 +14,23 @@ class DensityBar extends StatelessWidget {
     required this.onSeek,
   });
 
-  String formatDuration(double seconds) {
-    int min = seconds ~/ 60;
-    double sec = seconds % 60;
-    return "${min.toString().padLeft(2, '0')}:${sec.toStringAsFixed(2).padLeft(5, '0')}";
-  }
-
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (ctx, constraints) {
-        double barHeight = constraints.maxHeight;
-        return GestureDetector(
-          onTapDown: (detail) {
-            final y = detail.localPosition.dy;
-            final percent = y / barHeight;
-            final seekTime = songDuration * percent;
-            onSeek(seekTime);
-          },
-          onVerticalDragUpdate: (detail) {
-            final y = detail.localPosition.dy;
-            final percent = y / barHeight;
-            final seekTime = songDuration * percent;
-            onSeek(seekTime);
-          },
-          child: Column(
-            children: [
-              Text(formatDuration(songDuration), style: TextStyle(fontSize: 12)),
-              Expanded(
-                child: CustomPaint(
-                  painter: _DensityBarPainter(
-                    densityList: densityList,
-                    currentTime: currentTime,
-                    songDuration: songDuration,
-                  ),
-                ),
-              ),
-              Text(formatDuration(currentTime), style: TextStyle(fontSize: 12)),
-            ],
-          ),
-        );
+    return GestureDetector(
+      onTapDown: (d) {
+        RenderBox box = context.findRenderObject() as RenderBox;
+        double dy = d.localPosition.dy;
+        double p = dy / box.size.height;
+        onSeek(songDuration * p);
       },
+      child: CustomPaint(
+        size: Size(40, double.infinity),
+        painter: _DensityBarPainter(
+          densityList: densityList,
+          currentTime: currentTime,
+          songDuration: songDuration,
+        ),
+      ),
     );
   }
 }
@@ -72,25 +48,25 @@ class _DensityBarPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    int barCount = densityList.length;
-    for (int i = 0; i < barCount; ++i) {
-      double x = 0;
-      double y = i * size.height / barCount;
-      double barW = size.width;
-      double barH = size.height / barCount;
-      int density = densityList[i];
-      Paint p = Paint()
-        ..color = Color.lerp(Colors.grey[200], Colors.deepPurple, (density / 10.0).clamp(0, 1)) ?? Colors.grey
-        ..strokeWidth = barW;
+    int n = densityList.length;
+    int maxValue = densityList.fold(1, (max, v) => v > max ? v : max);
+    for (int i = 0; i < n; ++i) {
+      double top = (i / n) * size.height;
+      double h = (1 / n) * size.height;
+      double w = (densityList[i] / maxValue) * size.width;
       canvas.drawRect(
-          Rect.fromLTWH(x, y, barW, barH), p);
+        Rect.fromLTWH(size.width - w, top, w, h),
+        Paint()..color = Colors.blueAccent.withOpacity(0.7),
+      );
     }
-    // 当前播放位置线
-    double percent = songDuration == 0 ? 0 : currentTime / songDuration;
-    double currentY = percent * size.height;
-    canvas.drawRect(
-      Rect.fromLTWH(0, currentY - 2, size.width, 4),
-      Paint()..color = Colors.blue,
+    // 当前时间线
+    double py = (currentTime / (songDuration == 0 ? 1 : songDuration)) * size.height;
+    canvas.drawLine(
+      Offset(0, py),
+      Offset(size.width, py),
+      Paint()
+        ..color = Colors.red
+        ..strokeWidth = 2,
     );
   }
 

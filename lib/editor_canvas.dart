@@ -32,6 +32,10 @@ class Note {
 
 class EditorCanvas extends StatefulWidget {
   final List<Note> notes;
+  final double editorWidth;
+  final double scrollOffset;
+  final double canvasHeight;
+  final double totalHeight;
   final NoteType selectedType;
   final int xDivisions;
   final bool snapToXDivision;
@@ -45,6 +49,10 @@ class EditorCanvas extends StatefulWidget {
   const EditorCanvas({
     super.key,
     required this.notes,
+    required this.editorWidth,
+    required this.scrollOffset,
+    required this.canvasHeight,
+    required this.totalHeight,
     required this.selectedType,
     required this.xDivisions,
     required this.snapToXDivision,
@@ -81,9 +89,9 @@ class _EditorCanvasState extends State<EditorCanvas> {
   }
 
   double _screenToX(double dx, double width) => (dx / width) * 512.0;
-  double _screenToY(double dy, double height) => dy;
+  double _screenToY(double dy, double height) => dy + widget.scrollOffset;
   double _xToScreen(double x, double width) => (x / 512.0) * width;
-  double _yToScreen(double y, double height) => y;
+  double _yToScreen(double y, double height) => y - widget.scrollOffset;
 
   double _snapX(double x) {
     if (widget.customDivides != null && widget.customDivides!.isNotEmpty) {
@@ -137,7 +145,6 @@ class _EditorCanvasState extends State<EditorCanvas> {
               final note = widget.notes[i];
               double noteX = _xToScreen(note.x, width);
               double noteY = _yToScreen(note.y, height);
-              // rain音符可点到长条
               if (note.type == NoteType.rain && note.endY != null) {
                 double noteY2 = _yToScreen(note.endY!, height);
                 Rect rect = Rect.fromPoints(
@@ -161,7 +168,6 @@ class _EditorCanvasState extends State<EditorCanvas> {
               widget.onSelectNotes(selectedIndices);
               setState(() {});
             } else {
-              // rain音符起点终点由其它交互决定，这里只加普通note
               widget.onAddNote(Note(
                 x: x,
                 y: y,
@@ -208,7 +214,6 @@ class _EditorCanvasState extends State<EditorCanvas> {
               double y = _screenToY(local.dy - (dragOffset?.dy ?? 0), height);
               if (widget.snapToXDivision) x = _snapX(x);
               final notes = widget.notes.map((e) => e.clone()).toList();
-              // rain音符拖动全体平移
               if (notes[draggingIndex!].type == NoteType.rain && notes[draggingIndex!].endY != null) {
                 double deltaY = y - notes[draggingIndex!].y;
                 double? oldEndY = notes[draggingIndex!].endY;
@@ -261,6 +266,10 @@ class _EditorCanvasState extends State<EditorCanvas> {
               divides: divides,
               selectedIndices: selectedIndices,
               selectionRect: selectionRect,
+              scrollOffset: widget.scrollOffset,
+              canvasHeight: widget.canvasHeight,
+              totalHeight: widget.totalHeight,
+              editorWidth: widget.editorWidth,
             ),
           ),
         );
@@ -282,23 +291,58 @@ class _ChartPainter extends CustomPainter {
   final List<double> divides;
   final List<int> selectedIndices;
   final Rect? selectionRect;
+  final double scrollOffset;
+  final double canvasHeight;
+  final double totalHeight;
+  final double editorWidth;
   _ChartPainter({
     required this.notes,
     required this.color,
     required this.divides,
     required this.selectedIndices,
     required this.selectionRect,
+    required this.scrollOffset,
+    required this.canvasHeight,
+    required this.totalHeight,
+    required this.editorWidth,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
-    final Paint divPaint = Paint()
-      ..color = color.withOpacity(0.6)
-      ..strokeWidth = 1.0;
+    // y轴分度线（主/副色）
+    double barHeight = 1280.0;
+    int barCount = (totalHeight ~/ barHeight);
+    for (int i = 0; i <= barCount; ++i) {
+      double y = i * barHeight - scrollOffset;
+      if (y >= 0 && y <= canvasHeight) {
+        canvas.drawLine(
+          Offset(0, y),
+          Offset(size.width, y),
+          Paint()
+            ..color = (i % 4 == 0)
+                ? Colors.white
+                : Colors.deepPurple.withOpacity(0.6)
+            ..strokeWidth = (i % 4 == 0) ? 3 : 1,
+        );
+      }
+    }
+    // x轴分度线（灰色）
     for (final x in divides) {
       double dx = (x / 512.0) * size.width;
-      canvas.drawLine(Offset(dx, 0), Offset(dx, size.height), divPaint);
+      canvas.drawLine(
+        Offset(dx, 0),
+        Offset(dx, canvasHeight),
+        Paint()
+          ..color = Colors.grey.withOpacity(0.4)
+          ..strokeWidth = 1,
+      );
     }
+    // x=0, x=512加粗边框竖线
+    Paint borderPaint = Paint()
+      ..color = Colors.black
+      ..strokeWidth = 4;
+    canvas.drawLine(Offset(0, 0), Offset(0, canvasHeight), borderPaint);
+    canvas.drawLine(Offset(size.width, 0), Offset(size.width, canvasHeight), borderPaint);
 
     for (int i = 0; i < notes.length; ++i) {
       final note = notes[i];
@@ -306,10 +350,9 @@ class _ChartPainter extends CustomPainter {
         ..color = getNoteColor(note)
         ..style = PaintingStyle.fill;
       final double x = (note.x / 512.0) * size.width;
-      final double y = note.y;
+      final double y = note.y - scrollOffset;
       if (note.type == NoteType.rain && note.endY != null) {
-        final double y2 = note.endY!;
-        // 画竖条
+        final double y2 = note.endY! - scrollOffset;
         Rect rainRect = Rect.fromPoints(
           Offset(x - 6, y),
           Offset(x + 6, y2),

@@ -10,6 +10,8 @@ import 'malody_import_export.dart';
 import 'divide_preview_bar.dart';
 import 'divide_adjust_dialog.dart';
 import 'beat_color_util.dart';
+import 'preview_panel.dart';
+import 'density_bar.dart';
 
 void main() {
   runApp(const MalodyCatchEditorApp());
@@ -37,7 +39,7 @@ class EditorPage extends StatefulWidget {
 class _EditorPageState extends State<EditorPage> {
   List<Note> notes = [];
   NoteType selectedType = NoteType.normal;
-  int xDivisions = 4; // 默认1/4分度
+  int xDivisions = 4;
   bool snapToXDivision = true;
   List<int> selectedNoteIndices = [];
   Map<String, dynamic>? chartJson;
@@ -47,6 +49,17 @@ class _EditorPageState extends State<EditorPage> {
   Timer? _autoSaveTimer;
   late void Function() _deleteHandler;
   List<double>? customDivides;
+
+  // 播放与时间滚动
+  double currentTime = 0;
+  double songDuration = 180.0;
+  bool isPlaying = false;
+  double scrollOffset = 0;
+  double canvasHeight = 720;
+  double totalHeight = 1280.0 * 32;
+
+  // 可编辑区x宽度
+  final double editorWidth = 512;
 
   @override
   void initState() {
@@ -74,7 +87,7 @@ class _EditorPageState extends State<EditorPage> {
           .map((n) => {
         'x': n.x,
         'y': n.y,
-        'endY': n.endY, // 新增
+        'endY': n.endY,
         'type': n.type.name,
         'beat': n.beat,
       })
@@ -150,11 +163,9 @@ class _EditorPageState extends State<EditorPage> {
         chartJson = json;
         chartFilePath = path;
         notes = [];
-        // == 支持Malody note/rain ==
         if (json['note'] is List) {
           notes = parseMalodyNotes(json['note']);
         } else if (json['notes'] is List) {
-          // 兼容旧格式
           notes = (json['notes'] as List)
               .map((n) => Note(
             x: (n['x'] as num).toDouble(),
@@ -164,7 +175,8 @@ class _EditorPageState extends State<EditorPage> {
                     (e) => e.name == (n['type'] ?? 'normal'),
                 orElse: () => NoteType.normal),
             beat: n['beat']?.toString() ?? getBeatString(xDivisions),
-          )).toList();
+          ))
+              .toList();
         }
         selectedNoteIndices = [];
       });
@@ -187,7 +199,6 @@ class _EditorPageState extends State<EditorPage> {
     }
     try {
       final outChart = {...chartJson!};
-      // == 导出为Malody note格式 ==
       outChart['note'] = notes.map(noteToMalodyMap).toList();
 
       if (asZip) {
@@ -230,7 +241,7 @@ class _EditorPageState extends State<EditorPage> {
 
   void _handleCustomDivideDialog() async {
     final List<double> initDivides = customDivides ??
-        List.generate(xDivisions + 1, (i) => 512.0 * i / xDivisions);
+        List.generate(xDivisions + 1, (i) => editorWidth * i / xDivisions);
     final result = await showDialog<List<double>>(
       context: context,
       builder: (ctx) => DivideAdjustDialog(initialDivides: initDivides),
@@ -242,17 +253,66 @@ class _EditorPageState extends State<EditorPage> {
     }
   }
 
-  // 由xDivisions推断分度字符串
   String get currentBeat => getBeatString(xDivisions);
+
+  List<int> get densityList {
+    int densityBars = 100;
+    List<int> list = List.filled(densityBars, 0);
+    for (var n in notes) {
+      int idx = (n.y / totalHeight * densityBars).toInt().clamp(0, densityBars - 1);
+      list[idx]++;
+    }
+    return list;
+  }
+
+  void _play() {
+    setState(() {
+      isPlaying = true;
+    });
+    Timer.periodic(const Duration(milliseconds: 16), (timer) {
+      if (!isPlaying) {
+        timer.cancel();
+      } else if (currentTime >= songDuration) {
+        setState(() {
+          isPlaying = false;
+        });
+        timer.cancel();
+      } else {
+        setState(() {
+          currentTime += 0.016;
+          scrollOffset = (currentTime / songDuration) * (totalHeight - canvasHeight);
+        });
+      }
+    });
+  }
+
+  void _pause() {
+    setState(() {
+      isPlaying = false;
+    });
+  }
+
+  void _seek(double t) {
+    setState(() {
+      currentTime = t;
+      scrollOffset = (currentTime / songDuration) * (totalHeight - canvasHeight);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
+    int currentBar = ((scrollOffset + canvasHeight / 2) / 1280).floor();
     return Scaffold(
       appBar: AppBar(
         title: Text(
           'Malody Catch 编辑器${chartFilePath != null ? ' - ${_fileName(chartFilePath!)}' : ''}',
         ),
         actions: [
+          IconButton(
+            icon: Icon(isPlaying ? Icons.pause : Icons.play_arrow),
+            tooltip: isPlaying ? '暂停' : '播放',
+            onPressed: isPlaying ? _pause : _play,
+          ),
           IconButton(
             icon: const Icon(Icons.folder_open),
             tooltip: '导入',
@@ -270,101 +330,102 @@ class _EditorPageState extends State<EditorPage> {
           ),
         ],
       ),
-      body: Stack(
+      body: Row(
         children: [
-          if (bgFilePath != null)
-            Positioned.fill(
-              child: Image.file(
-                File(bgFilePath!),
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) =>
-                    Container(color: Colors.black12),
-              ),
-            ),
+          // 左侧预览/密度条
           Column(
             children: [
-              Expanded(
-                child: Row(
-                  children: [
-                    Container(
-                      width: 60,
-                      color: Colors.grey[200],
-                      child: Column(
-                        children: const [
-                          SizedBox(height: 20),
-                          Text('轨道栏', style: TextStyle(fontWeight: FontWeight.bold)),
-                        ],
-                      ),
-                    ),
-                    Expanded(
-                      child: Container(
-                        color: Colors.transparent,
-                        child: EditorCanvas(
-                          notes: notes,
-                          selectedType: selectedType,
-                          xDivisions: xDivisions,
-                          snapToXDivision: snapToXDivision,
-                          customDivides: customDivides,
-                          beatStr: currentBeat,
-                          onAddNote: (note) {
-                            setState(() {
-                              notes.add(note);
-                            });
-                          },
-                          onNotesChanged: _handleNotesChanged,
-                          onSelectNotes: _handleSelectNotes,
-                          onRegisterDeleteHandler: _registerDeleteHandler,
-                        ),
-                      ),
-                    ),
-                    Container(
-                      width: 260,
-                      color: Colors.grey[100],
-                      child: EditorRightPanel(
-                        selectedType: selectedType,
-                        onTypeChanged: (type) {
-                          setState(() {
-                            selectedType = type;
-                          });
-                        },
-                        xDivisions: xDivisions,
-                        snapToXDivision: snapToXDivision,
-                        onXDivChanged: (v) {
-                          setState(() {
-                            xDivisions = v;
-                            customDivides = null;
-                          });
-                        },
-                        onSnapChanged: (v) {
-                          setState(() {
-                            snapToXDivision = v;
-                          });
-                        },
-                        selectedCount: selectedNoteIndices.length,
-                        onDeleteSelected: _handleDeleteSelected,
-                        chartMeta: chartJson?['meta'],
-                        customDivides: customDivides,
-                        onCustomDivideDialog: _handleCustomDivideDialog,
-                      ),
-                    ),
-                  ],
-                ),
+              PreviewPanel(
+                notes: notes,
+                currentBar: currentBar,
+                previewRangeBars: 4,
+                barCount: 32,
+                width: 40,
+                height: 300,
               ),
-              DividePreviewBar(
-                xDivisions: xDivisions,
-                customDivides: customDivides,
-                beatStr: currentBeat,
-                onCustomDividesChanged: (divides) {
-                  setState(() {
-                    customDivides = divides;
-                  });
-                },
+              const SizedBox(height: 12),
+              Expanded(
+                child: DensityBar(
+                  densityList: densityList,
+                  currentTime: currentTime,
+                  songDuration: songDuration,
+                  onSeek: _seek,
+                ),
               ),
             ],
           ),
+          // 中间主编辑区
+          Expanded(
+            child: Center(
+              child: Container(
+                width: editorWidth,
+                color: Colors.transparent,
+                child: EditorCanvas(
+                  notes: notes,
+                  editorWidth: editorWidth,
+                  scrollOffset: scrollOffset,
+                  canvasHeight: canvasHeight,
+                  totalHeight: totalHeight,
+                  selectedType: selectedType,
+                  xDivisions: xDivisions,
+                  snapToXDivision: snapToXDivision,
+                  customDivides: customDivides,
+                  beatStr: currentBeat,
+                  onAddNote: (note) {
+                    setState(() {
+                      notes.add(note);
+                    });
+                  },
+                  onNotesChanged: _handleNotesChanged,
+                  onSelectNotes: _handleSelectNotes,
+                  onRegisterDeleteHandler: _registerDeleteHandler,
+                ),
+              ),
+            ),
+          ),
+          // 右侧功能面板
+          Container(
+            width: 260,
+            color: Colors.grey[100],
+            child: EditorRightPanel(
+              selectedType: selectedType,
+              onTypeChanged: (type) {
+                setState(() {
+                  selectedType = type;
+                });
+              },
+              xDivisions: xDivisions,
+              snapToXDivision: snapToXDivision,
+              onXDivChanged: (v) {
+                setState(() {
+                  xDivisions = v;
+                  customDivides = null;
+                });
+              },
+              onSnapChanged: (v) {
+                setState(() {
+                  snapToXDivision = v;
+                });
+              },
+              selectedCount: selectedNoteIndices.length,
+              onDeleteSelected: _handleDeleteSelected,
+              chartMeta: chartJson?['meta'],
+              customDivides: customDivides,
+              onCustomDivideDialog: _handleCustomDivideDialog,
+            ),
+          ),
         ],
       ),
-      bottomNavigationBar: null,
+      bottomNavigationBar: DividePreviewBar(
+        xDivisions: xDivisions,
+        customDivides: customDivides,
+        beatStr: currentBeat,
+        onCustomDividesChanged: (divides) {
+          setState(() {
+            customDivides = divides;
+          });
+        },
+      ),
     );
   }
 }
