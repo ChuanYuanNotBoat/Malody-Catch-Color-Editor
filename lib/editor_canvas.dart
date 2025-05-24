@@ -1,15 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:flutter/gestures.dart';
 import 'beat_color_util.dart';
 
-enum NoteType { normal, long, special, rain }
+enum NoteType { normal, rain }
 
 class Note {
-  double x; // 0-512
+  double x;
   double y;
   NoteType type;
-  String beat; // 如"1/4"
+  String beat;
   bool selected;
   Note({
     required this.x,
@@ -63,7 +61,7 @@ class EditorCanvas extends StatefulWidget {
     this.isPlaying = false,
     this.onScroll,
     this.onSeek,
-    this.totalHeight = 40960, // 默认32小节*1280
+    this.totalHeight = 40960,
   });
 
   @override
@@ -233,4 +231,15 @@ class _ChartPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
+}
+
+Color getNoteColor(Note note) {
+  switch (note.type) {
+    case NoteType.normal:
+      return Colors.deepPurple;
+    case NoteType.rain:
+      return Colors.blue;
+    default:
+      return Colors.grey;
+  }
 }
