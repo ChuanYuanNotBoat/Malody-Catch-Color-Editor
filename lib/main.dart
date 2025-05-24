@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
 import 'dart:io';
+import 'dart:convert';
+import 'package:path/path.dart' as p;
+
 import 'editor_canvas.dart';
 import 'editor_right_panel.dart';
 import 'malody_import_export.dart';
 import 'divide_preview_bar.dart';
-import 'package:path/path.dart' as p;
+import 'divide_adjust_dialog.dart';
+import 'beat_color_util.dart';
 
 void main() {
   runApp(const MalodyCatchEditorApp());
@@ -33,7 +37,7 @@ class EditorPage extends StatefulWidget {
 class _EditorPageState extends State<EditorPage> {
   List<Note> notes = [];
   NoteType selectedType = NoteType.normal;
-  int xDivisions = 20;
+  int xDivisions = 4; // 默认1/4分度
   bool snapToXDivision = true;
   List<int> selectedNoteIndices = [];
   Map<String, dynamic>? chartJson;
@@ -43,9 +47,6 @@ class _EditorPageState extends State<EditorPage> {
   Timer? _autoSaveTimer;
   late void Function() _deleteHandler;
   List<double>? customDivides;
-
-  // 新增的getter方法
-  String get currentBeat => getBeatString(xDivisions);
 
   @override
   void initState() {
@@ -74,6 +75,7 @@ class _EditorPageState extends State<EditorPage> {
         'x': n.x,
         'y': n.y,
         'type': n.type.name,
+        'beat': n.beat,
       })
           .toList();
       await File(path).writeAsString(const JsonEncoder.withIndent('  ').convert(mcJson));
@@ -155,6 +157,7 @@ class _EditorPageState extends State<EditorPage> {
             type: NoteType.values.firstWhere(
                     (e) => e.name == (n['type'] ?? 'normal'),
                 orElse: () => NoteType.normal),
+            beat: n['beat']?.toString() ?? getBeatString(xDivisions),
           ))
               .toList();
         }
@@ -184,6 +187,7 @@ class _EditorPageState extends State<EditorPage> {
         'x': n.x,
         'y': n.y,
         'type': n.type.name,
+        'beat': n.beat,
       })
           .toList();
 
@@ -238,6 +242,9 @@ class _EditorPageState extends State<EditorPage> {
       });
     }
   }
+
+  // 由xDivisions推断分度字符串
+  String get currentBeat => getBeatString(xDivisions);
 
   @override
   Widget build(BuildContext context) {
@@ -299,7 +306,6 @@ class _EditorPageState extends State<EditorPage> {
                           xDivisions: xDivisions,
                           snapToXDivision: snapToXDivision,
                           customDivides: customDivides,
-                          // 新增的beatStr参数
                           beatStr: currentBeat,
                           onAddNote: (note) {
                             setState(() {
@@ -348,7 +354,6 @@ class _EditorPageState extends State<EditorPage> {
               DividePreviewBar(
                 xDivisions: xDivisions,
                 customDivides: customDivides,
-                // 新增的beatStr参数
                 beatStr: currentBeat,
                 onCustomDividesChanged: (divides) {
                   setState(() {
@@ -360,6 +365,7 @@ class _EditorPageState extends State<EditorPage> {
           ),
         ],
       ),
+      bottomNavigationBar: null,
     );
   }
 }

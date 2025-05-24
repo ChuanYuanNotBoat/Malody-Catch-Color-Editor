@@ -187,7 +187,6 @@ class _MetaPanel extends StatelessWidget {
         ListTile(title: const Text("Artist"), subtitle: Text(song['artist']?.toString() ?? '')),
         ListTile(title: const Text("Creator"), subtitle: Text(meta!['creator']?.toString() ?? '')),
         ListTile(title: const Text("Version"), subtitle: Text(meta!['version']?.toString() ?? '')),
-        // 可继续添加
       ],
     );
   }

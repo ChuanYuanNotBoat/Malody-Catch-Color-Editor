@@ -15,7 +15,6 @@ const Map<String, Color> beatColorMap = {
 
 const Color rainNoteColor = Colors.cyan;
 
-/// 获取分度字符串
 String getBeatString(int xDiv) {
   switch (xDiv) {
     case 1:
@@ -43,5 +42,4 @@ String getBeatString(int xDiv) {
   }
 }
 
-/// 获取非rain音符的颜色，优先根据分度字符串
 Color getColorForBeat(String beat) => beatColorMap[beat] ?? Colors.purple;

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'beat_color_util.dart';
 
 enum NoteType { normal, long, special, rain }
