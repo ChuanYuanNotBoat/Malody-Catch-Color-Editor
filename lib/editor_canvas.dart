@@ -277,8 +277,9 @@ class _EditorCanvasState extends State<EditorCanvas> {
   }
 }
 
+// 分母で色分け
 Color getColorForBeatDenom(dynamic beat) {
-  int denom = 4;
+  int denom = 4; // デフォルト
   if (beat is List && beat.length == 3) {
     denom = beat[2] is int ? beat[2] : int.tryParse(beat[2].toString()) ?? 4;
   } else if (beat is String && beat.contains('/')) {
@@ -301,7 +302,7 @@ Color getColorForBeatDenom(dynamic beat) {
     case 32:
       return const Color(0xFFFFD700); // 黄
     default:
-      return const Color(0xFFA020F0); // 紫
+      return const Color(0xFFA020F0); // デフォルト紫
   }
 }
 

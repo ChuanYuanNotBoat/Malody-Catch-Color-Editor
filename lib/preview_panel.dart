@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'editor_canvas.dart';
+import 'editor_canvas.dart'; // 确保 getColorForBeatDenom 可用
 
 class PreviewPanel extends StatelessWidget {
   final List<Note> notes;
@@ -13,30 +13,24 @@ class PreviewPanel extends StatelessWidget {
     super.key,
     required this.notes,
     required this.currentBar,
-    this.previewRangeBars = 4,
+    required this.previewRangeBars,
     required this.barCount,
-    this.width = 40,
-    this.height = 300,
+    required this.width,
+    required this.height,
   });
 
   @override
   Widget build(BuildContext context) {
-    int startBar = (currentBar - previewRangeBars).clamp(0, barCount - 1);
-    int endBar = (currentBar + previewRangeBars).clamp(0, barCount - 1);
-    List<Note> showNotes = notes.where((n) {
-      int nbar = (n.y ~/ 1280);
-      return nbar >= startBar && nbar <= endBar;
-    }).toList();
-
     return Container(
       width: width,
       height: height,
+      color: Colors.black12,
       child: CustomPaint(
         painter: _PreviewPainter(
-          showNotes: showNotes,
-          startBar: startBar,
-          endBar: endBar,
-          totalBar: barCount,
+          notes: notes,
+          currentBar: currentBar,
+          previewRangeBars: previewRangeBars,
+          barCount: barCount,
         ),
       ),
     );
@@ -44,37 +38,53 @@ class PreviewPanel extends StatelessWidget {
 }
 
 class _PreviewPainter extends CustomPainter {
-  final List<Note> showNotes;
-  final int startBar;
-  final int endBar;
-  final int totalBar;
+  final List<Note> notes;
+  final int currentBar;
+  final int previewRangeBars;
+  final int barCount;
 
   _PreviewPainter({
-    required this.showNotes,
-    required this.startBar,
-    required this.endBar,
-    required this.totalBar,
+    required this.notes,
+    required this.currentBar,
+    required this.previewRangeBars,
+    required this.barCount,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
-    int barRange = endBar - startBar + 1;
-    for (final note in showNotes) {
-      int nbar = (note.y ~/ 1280);
-      double y = size.height -
-          ((nbar - startBar) / (barRange == 0 ? 1 : barRange)) * size.height;
-      double x = note.x / 512.0 * size.width;
-      canvas.drawCircle(Offset(x, y), 2, Paint()..color = getNoteColor(note));
+    final double totalHeight = size.height;
+    final double barHeight = totalHeight / barCount;
+    Paint barPaint = Paint()
+      ..color = Colors.grey.withOpacity(0.3)
+      ..style = PaintingStyle.fill;
+    for (int i = 0; i < barCount; ++i) {
+      if (i % 2 == 0) {
+        canvas.drawRect(
+          Rect.fromLTWH(0, i * barHeight, size.width, barHeight),
+          barPaint,
+        );
+      }
     }
-    // 中心线
-    double centerY = size.height - ((0.5) * size.height);
-    canvas.drawLine(
-      Offset(0, centerY),
-      Offset(size.width, centerY),
-      Paint()
-        ..color = Colors.blue
-        ..strokeWidth = 2,
-    );
+    // highlight current preview bars
+    Paint curPaint = Paint()
+      ..color = Colors.blue.withOpacity(0.15)
+      ..style = PaintingStyle.fill;
+    for (int i = currentBar; i < currentBar + previewRangeBars && i < barCount; ++i) {
+      canvas.drawRect(
+        Rect.fromLTWH(0, i * barHeight, size.width, barHeight),
+        curPaint,
+      );
+    }
+    // notes
+    for (final note in notes) {
+      double y = (note.y / (1280.0 * barCount)) * totalHeight;
+      double x = (note.x / 512.0) * size.width;
+      canvas.drawCircle(
+        Offset(x, y),
+        2,
+        Paint()..color = getColorForBeatDenom(note.beat),
+      );
+    }
   }
 
   @override

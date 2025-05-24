@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart'; // for PointerScrollEvent
 import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
@@ -203,7 +204,7 @@ class _EditorPageState extends State<EditorPage> {
             type: NoteType.values.firstWhere(
                     (e) => e.name == (n['type'] ?? 'normal'),
                 orElse: () => NoteType.normal),
-            beat: n['beat']?.toString() ?? getBeatString(xDivisions),
+            beat: n['beat'] ?? getBeatString(xDivisions),
           ))
               .toList();
         }
@@ -461,24 +462,6 @@ class _EditorPageState extends State<EditorPage> {
               chartMeta: chartJson?['meta'],
               customDivides: customDivides,
               onCustomDivideDialog: _handleCustomDivideDialog,
-              // 新增分度调节滑块
-              extraWidgets: [
-                Row(
-                  children: [
-                    const Text("分度(小节):", style: TextStyle(fontSize: 12)),
-                    Expanded(
-                      child: Slider(
-                        min: 0.25,
-                        max: 2.0,
-                        divisions: 7,
-                        value: divisionBeat,
-                        label: "${divisionBeat.toStringAsFixed(2)}",
-                        onChanged: _onDivisionBeatChanged,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
             ),
           ),
         ],
