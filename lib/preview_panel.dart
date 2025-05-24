@@ -4,7 +4,7 @@ import 'editor_canvas.dart';
 class PreviewPanel extends StatelessWidget {
   final List<Note> notes;
   final int currentBar;
-  final int previewRangeBars;
+  final int previewRangeBars; // 如4，展示正负4小节
   final int barCount;
   final double width;
   final double height;
@@ -58,7 +58,7 @@ class _PreviewPainter extends CustomPainter {
     int barRange = endBar - startBar + 1;
     for (final note in showNotes) {
       double y = size.height -
-          ((note.bar - startBar) / barRange) * size.height;
+          ((note.bar - startBar) / barRange) * size.height; // 竖直分布
       double x = note.x / 512.0 * size.width;
       canvas.drawCircle(Offset(x, y), 2, Paint()..color = getNoteColor(note));
     }
