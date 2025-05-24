@@ -4,6 +4,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:archive/archive.dart';
 import 'package:archive/archive_io.dart';
 import 'package:path/path.dart' as p;
+import 'editor_canvas.dart';
 
 /// 选择 Malody 谱面文件（.mc 或 .mcz），返回文件路径
 Future<String?> pickMalodyFile() async {
@@ -128,4 +129,60 @@ Future<String?> pickMalodySavePath({required bool zip}) async {
     type: FileType.custom,
     allowedExtensions: zip ? ['mcz'] : ['mc'],
   );
+}
+
+/// 解析 Malody Catch notes (兼容 rain 长条)
+List<Note> parseMalodyNotes(List<dynamic> malodyNotes) {
+  List<Note> result = [];
+  for (var n in malodyNotes) {
+    List beat = n['beat'] ?? [0,0,1];
+    int bar = beat[0] ?? 0;
+    int beatNum = beat[1] ?? 0;
+    int denom = beat[2] ?? 1;
+    double y = bar * 1280 + (beatNum / denom) * 1280;
+
+    double x = (n['offset'] is num) ? (n['offset'] as num).toDouble() : 256.0;
+    NoteType type = NoteType.normal;
+    if (n['type'] == 3) type = NoteType.rain;
+
+    String beatStr = "1/4";
+    double? endY;
+    if (type == NoteType.rain && n['endbeat'] is List) {
+      List endbeat = n['endbeat'];
+      int endBar = endbeat[0] ?? 0;
+      int endBeatNum = endbeat[1] ?? 0;
+      int endDenom = endbeat[2] ?? 1;
+      endY = endBar * 1280 + (endBeatNum / endDenom) * 1280;
+    }
+
+    result.add(Note(
+      x: x,
+      y: y,
+      endY: endY,
+      type: type,
+      beat: beatStr,
+    ));
+  }
+  return result;
+}
+
+/// Note -> Malody note (支持rain endbeat)
+Map<String, dynamic> noteToMalodyMap(Note n) {
+  int bar = (n.y ~/ 1280);
+  double restY = n.y - bar * 1280;
+  int beatNum = ((restY / 1280) * 4).round();
+
+  Map<String, dynamic> map = {
+    "beat": [bar, beatNum, 4],
+    "offset": n.x,
+    "type": n.type == NoteType.rain ? 3 : 1,
+  };
+
+  if (n.type == NoteType.rain && n.endY != null) {
+    int endBar = (n.endY! ~/ 1280);
+    double endRestY = n.endY! - endBar * 1280;
+    int endBeatNum = ((endRestY / 1280) * 4).round();
+    map["endbeat"] = [endBar, endBeatNum, 4];
+  }
+  return map;
 }

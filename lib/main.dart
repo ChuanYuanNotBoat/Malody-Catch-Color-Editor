@@ -10,8 +10,6 @@ import 'malody_import_export.dart';
 import 'divide_preview_bar.dart';
 import 'divide_adjust_dialog.dart';
 import 'beat_color_util.dart';
-import 'density_bar.dart';
-import 'preview_panel.dart';
 
 void main() {
   runApp(const MalodyCatchEditorApp());
@@ -39,7 +37,7 @@ class EditorPage extends StatefulWidget {
 class _EditorPageState extends State<EditorPage> {
   List<Note> notes = [];
   NoteType selectedType = NoteType.normal;
-  int xDivisions = 4;
+  int xDivisions = 4; // 默认1/4分度
   bool snapToXDivision = true;
   List<int> selectedNoteIndices = [];
   Map<String, dynamic>? chartJson;
@@ -49,14 +47,6 @@ class _EditorPageState extends State<EditorPage> {
   Timer? _autoSaveTimer;
   late void Function() _deleteHandler;
   List<double>? customDivides;
-
-  // 下落式相关
-  double scrollOffset = 0;
-  double canvasHeight = 720;
-  double totalHeight = 1280.0 * 32;
-  double currentTime = 0;
-  double songDuration = 180.0;
-  bool isPlaying = false;
 
   @override
   void initState() {
@@ -84,6 +74,7 @@ class _EditorPageState extends State<EditorPage> {
           .map((n) => {
         'x': n.x,
         'y': n.y,
+        'endY': n.endY, // 新增
         'type': n.type.name,
         'beat': n.beat,
       })
@@ -159,21 +150,25 @@ class _EditorPageState extends State<EditorPage> {
         chartJson = json;
         chartFilePath = path;
         notes = [];
-        if (json['notes'] is List) {
+        // == 支持Malody note/rain ==
+        if (json['note'] is List) {
+          notes = parseMalodyNotes(json['note']);
+        } else if (json['notes'] is List) {
+          // 兼容旧格式
           notes = (json['notes'] as List)
               .map((n) => Note(
             x: (n['x'] as num).toDouble(),
             y: (n['y'] as num).toDouble(),
+            endY: n['endY'] != null ? (n['endY'] as num).toDouble() : null,
             type: NoteType.values.firstWhere(
                     (e) => e.name == (n['type'] ?? 'normal'),
                 orElse: () => NoteType.normal),
             beat: n['beat']?.toString() ?? getBeatString(xDivisions),
-          ))
-              .toList();
+          )).toList();
         }
         selectedNoteIndices = [];
       });
-      await _autoAlignAssets(path, json);
+      await _autoAlignAssets(path, chartJson!);
       _showMessage('导入成功: ${_fileName(path)}');
     } catch (e) {
       _showMessage('导入失败: $e');
@@ -192,14 +187,8 @@ class _EditorPageState extends State<EditorPage> {
     }
     try {
       final outChart = {...chartJson!};
-      outChart['notes'] = notes
-          .map((n) => {
-        'x': n.x,
-        'y': n.y,
-        'type': n.type.name,
-        'beat': n.beat,
-      })
-          .toList();
+      // == 导出为Malody note格式 ==
+      outChart['note'] = notes.map(noteToMalodyMap).toList();
 
       if (asZip) {
         await exportMczFileWithOriginalNames(
@@ -256,19 +245,8 @@ class _EditorPageState extends State<EditorPage> {
   // 由xDivisions推断分度字符串
   String get currentBeat => getBeatString(xDivisions);
 
-  List<int> get densityList {
-    int densityBars = 100;
-    List<int> list = List.filled(densityBars, 0);
-    for (var n in notes) {
-      int idx = (n.y / totalHeight * densityBars).toInt().clamp(0, densityBars - 1);
-      list[idx]++;
-    }
-    return list;
-  }
-
   @override
   Widget build(BuildContext context) {
-    int currentBar = ((scrollOffset + canvasHeight / 2) / 1280).floor();
     return Scaffold(
       appBar: AppBar(
         title: Text(
@@ -292,100 +270,101 @@ class _EditorPageState extends State<EditorPage> {
           ),
         ],
       ),
-      body: Row(
+      body: Stack(
         children: [
-          // 左侧：预览和密度条
+          if (bgFilePath != null)
+            Positioned.fill(
+              child: Image.file(
+                File(bgFilePath!),
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) =>
+                    Container(color: Colors.black12),
+              ),
+            ),
           Column(
             children: [
-              PreviewPanel(
-                notes: notes,
-                currentBar: currentBar,
-                previewRangeBars: 4,
-                barCount: 32,
-                width: 40,
-                height: 300,
-              ),
-              const SizedBox(height: 12),
               Expanded(
-                child: DensityBar(
-                  densityList: densityList,
-                  currentTime: currentTime,
-                  songDuration: songDuration,
-                  onSeek: (t) {
-                    setState(() {
-                      currentTime = t;
-                      scrollOffset = (currentTime / (songDuration == 0 ? 1 : songDuration)) * (totalHeight - canvasHeight);
-                    });
-                  },
+                child: Row(
+                  children: [
+                    Container(
+                      width: 60,
+                      color: Colors.grey[200],
+                      child: Column(
+                        children: const [
+                          SizedBox(height: 20),
+                          Text('轨道栏', style: TextStyle(fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                    ),
+                    Expanded(
+                      child: Container(
+                        color: Colors.transparent,
+                        child: EditorCanvas(
+                          notes: notes,
+                          selectedType: selectedType,
+                          xDivisions: xDivisions,
+                          snapToXDivision: snapToXDivision,
+                          customDivides: customDivides,
+                          beatStr: currentBeat,
+                          onAddNote: (note) {
+                            setState(() {
+                              notes.add(note);
+                            });
+                          },
+                          onNotesChanged: _handleNotesChanged,
+                          onSelectNotes: _handleSelectNotes,
+                          onRegisterDeleteHandler: _registerDeleteHandler,
+                        ),
+                      ),
+                    ),
+                    Container(
+                      width: 260,
+                      color: Colors.grey[100],
+                      child: EditorRightPanel(
+                        selectedType: selectedType,
+                        onTypeChanged: (type) {
+                          setState(() {
+                            selectedType = type;
+                          });
+                        },
+                        xDivisions: xDivisions,
+                        snapToXDivision: snapToXDivision,
+                        onXDivChanged: (v) {
+                          setState(() {
+                            xDivisions = v;
+                            customDivides = null;
+                          });
+                        },
+                        onSnapChanged: (v) {
+                          setState(() {
+                            snapToXDivision = v;
+                          });
+                        },
+                        selectedCount: selectedNoteIndices.length,
+                        onDeleteSelected: _handleDeleteSelected,
+                        chartMeta: chartJson?['meta'],
+                        customDivides: customDivides,
+                        onCustomDivideDialog: _handleCustomDivideDialog,
+                      ),
+                    ),
+                  ],
                 ),
+              ),
+              DividePreviewBar(
+                xDivisions: xDivisions,
+                customDivides: customDivides,
+                beatStr: currentBeat,
+                onCustomDividesChanged: (divides) {
+                  setState(() {
+                    customDivides = divides;
+                  });
+                },
               ),
             ],
           ),
-          // 主编辑画布，下落式
-          Expanded(
-            child: EditorCanvas(
-              notes: notes,
-              scrollOffset: scrollOffset,
-              canvasHeight: canvasHeight,
-              totalHeight: totalHeight,
-              selectedType: selectedType,
-              xDivisions: xDivisions,
-              snapToXDivision: snapToXDivision,
-              customDivides: customDivides,
-              beatStr: currentBeat,
-              onAddNote: (note) {
-                setState(() {
-                  notes.add(note);
-                });
-              },
-              onNotesChanged: _handleNotesChanged,
-              onSelectNotes: _handleSelectNotes,
-              onRegisterDeleteHandler: _registerDeleteHandler,
-            ),
-          ),
-          // 右侧功能面板
-          Container(
-            width: 260,
-            color: Colors.grey[100],
-            child: EditorRightPanel(
-              selectedType: selectedType,
-              onTypeChanged: (type) {
-                setState(() {
-                  selectedType = type;
-                });
-              },
-              xDivisions: xDivisions,
-              snapToXDivision: snapToXDivision,
-              onXDivChanged: (v) {
-                setState(() {
-                  xDivisions = v;
-                  customDivides = null;
-                });
-              },
-              onSnapChanged: (v) {
-                setState(() {
-                  snapToXDivision = v;
-                });
-              },
-              selectedCount: selectedNoteIndices.length,
-              onDeleteSelected: _handleDeleteSelected,
-              chartMeta: chartJson?['meta'],
-              customDivides: customDivides,
-              onCustomDivideDialog: _handleCustomDivideDialog,
-            ),
-          ),
         ],
       ),
-      bottomNavigationBar: DividePreviewBar(
-        xDivisions: xDivisions,
-        customDivides: customDivides,
-        beatStr: currentBeat,
-        onCustomDividesChanged: (divides) {
-          setState(() {
-            customDivides = divides;
-          });
-        },
-      ),
+      bottomNavigationBar: null,
     );
   }
 }

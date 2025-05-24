@@ -6,13 +6,15 @@ enum NoteType { normal, rain }
 
 class Note {
   double x; // 0-512
-  double y; // 下落式y轴=时间
+  double y; // 起始y
+  double? endY; // rain音符才有
   NoteType type;
-  String beat;
+  String beat; // 如"1/4"
   bool selected;
   Note({
     required this.x,
     required this.y,
+    this.endY,
     required this.type,
     required this.beat,
     this.selected = false,
@@ -21,6 +23,7 @@ class Note {
   Note clone() => Note(
     x: x,
     y: y,
+    endY: endY,
     type: type,
     beat: beat,
     selected: selected,
@@ -29,9 +32,6 @@ class Note {
 
 class EditorCanvas extends StatefulWidget {
   final List<Note> notes;
-  final double scrollOffset;
-  final double canvasHeight;
-  final double totalHeight;
   final NoteType selectedType;
   final int xDivisions;
   final bool snapToXDivision;
@@ -45,9 +45,6 @@ class EditorCanvas extends StatefulWidget {
   const EditorCanvas({
     super.key,
     required this.notes,
-    required this.scrollOffset,
-    required this.canvasHeight,
-    required this.totalHeight,
     required this.selectedType,
     required this.xDivisions,
     required this.snapToXDivision,
@@ -84,9 +81,9 @@ class _EditorCanvasState extends State<EditorCanvas> {
   }
 
   double _screenToX(double dx, double width) => (dx / width) * 512.0;
-  double _screenToY(double dy, double height) => dy + widget.scrollOffset;
+  double _screenToY(double dy, double height) => dy;
   double _xToScreen(double x, double width) => (x / 512.0) * width;
-  double _yToScreen(double y, double height) => y - widget.scrollOffset;
+  double _yToScreen(double y, double height) => y;
 
   double _snapX(double x) {
     if (widget.customDivides != null && widget.customDivides!.isNotEmpty) {
@@ -125,6 +122,7 @@ class _EditorCanvasState extends State<EditorCanvas> {
         final height = constraints.maxHeight;
         final divides = widget.customDivides ??
             List.generate(widget.xDivisions + 1, (i) => 512.0 * i / widget.xDivisions);
+
         final color = getColorForBeat(widget.beatStr);
 
         return GestureDetector(
@@ -139,9 +137,22 @@ class _EditorCanvasState extends State<EditorCanvas> {
               final note = widget.notes[i];
               double noteX = _xToScreen(note.x, width);
               double noteY = _yToScreen(note.y, height);
-              if ((Offset(noteX, noteY) - local).distance < 16) {
-                hitIdx = i;
-                break;
+              // rain音符可点到长条
+              if (note.type == NoteType.rain && note.endY != null) {
+                double noteY2 = _yToScreen(note.endY!, height);
+                Rect rect = Rect.fromPoints(
+                  Offset(noteX - 8, noteY),
+                  Offset(noteX + 8, noteY2),
+                );
+                if (rect.contains(local)) {
+                  hitIdx = i;
+                  break;
+                }
+              } else {
+                if ((Offset(noteX, noteY) - local).distance < 16) {
+                  hitIdx = i;
+                  break;
+                }
               }
             }
 
@@ -150,6 +161,7 @@ class _EditorCanvasState extends State<EditorCanvas> {
               widget.onSelectNotes(selectedIndices);
               setState(() {});
             } else {
+              // rain音符起点终点由其它交互决定，这里只加普通note
               widget.onAddNote(Note(
                 x: x,
                 y: y,
@@ -167,10 +179,23 @@ class _EditorCanvasState extends State<EditorCanvas> {
               final note = widget.notes[i];
               double noteX = _xToScreen(note.x, width);
               double noteY = _yToScreen(note.y, height);
-              if ((Offset(noteX, noteY) - local).distance < 16) {
-                draggingIndex = i;
-                dragOffset = local - Offset(noteX, noteY);
-                return;
+              if (note.type == NoteType.rain && note.endY != null) {
+                double noteY2 = _yToScreen(note.endY!, height);
+                Rect rect = Rect.fromPoints(
+                  Offset(noteX - 8, noteY),
+                  Offset(noteX + 8, noteY2),
+                );
+                if (rect.contains(local)) {
+                  draggingIndex = i;
+                  dragOffset = local - Offset(noteX, noteY);
+                  return;
+                }
+              } else {
+                if ((Offset(noteX, noteY) - local).distance < 16) {
+                  draggingIndex = i;
+                  dragOffset = local - Offset(noteX, noteY);
+                  return;
+                }
               }
             }
             selectionRect = Rect.fromLTWH(local.dx, local.dy, 0, 0);
@@ -183,9 +208,19 @@ class _EditorCanvasState extends State<EditorCanvas> {
               double y = _screenToY(local.dy - (dragOffset?.dy ?? 0), height);
               if (widget.snapToXDivision) x = _snapX(x);
               final notes = widget.notes.map((e) => e.clone()).toList();
-              notes[draggingIndex!] = notes[draggingIndex!]
-                ..x = x.clamp(0, 512)
-                ..y = y.clamp(0, widget.totalHeight);
+              // rain音符拖动全体平移
+              if (notes[draggingIndex!].type == NoteType.rain && notes[draggingIndex!].endY != null) {
+                double deltaY = y - notes[draggingIndex!].y;
+                double? oldEndY = notes[draggingIndex!].endY;
+                notes[draggingIndex!] = notes[draggingIndex!]
+                  ..x = x.clamp(0, 512)
+                  ..y = y.clamp(0, height.toDouble())
+                  ..endY = (oldEndY! + deltaY).clamp(0, height.toDouble());
+              } else {
+                notes[draggingIndex!] = notes[draggingIndex!]
+                  ..x = x.clamp(0, 512)
+                  ..y = y.clamp(0, height.toDouble());
+              }
               widget.onNotesChanged(notes);
             } else if (selectionRect != null) {
               final start = Offset(selectionRect!.left, selectionRect!.top);
@@ -196,7 +231,16 @@ class _EditorCanvasState extends State<EditorCanvas> {
                 final note = widget.notes[i];
                 double noteX = _xToScreen(note.x, width);
                 double noteY = _yToScreen(note.y, height);
-                if (rect.contains(Offset(noteX, noteY))) hitIdxs.add(i);
+                if (note.type == NoteType.rain && note.endY != null) {
+                  double noteY2 = _yToScreen(note.endY!, height);
+                  Rect rectNote = Rect.fromPoints(
+                    Offset(noteX - 8, noteY),
+                    Offset(noteX + 8, noteY2),
+                  );
+                  if (rect.overlaps(rectNote)) hitIdxs.add(i);
+                } else {
+                  if (rect.contains(Offset(noteX, noteY))) hitIdxs.add(i);
+                }
               }
               selectedIndices = hitIdxs;
               widget.onSelectNotes(selectedIndices);
@@ -209,32 +253,15 @@ class _EditorCanvasState extends State<EditorCanvas> {
             selectionRect = null;
             setState(() {});
           },
-          child: Stack(
-            children: [
-              CustomPaint(
-                size: Size(width, height),
-                painter: _ChartPainter(
-                  notes: widget.notes,
-                  color: color,
-                  divides: divides,
-                  selectedIndices: selectedIndices,
-                  selectionRect: selectionRect,
-                  scrollOffset: widget.scrollOffset,
-                  canvasHeight: widget.canvasHeight,
-                  totalHeight: widget.totalHeight,
-                ),
-              ),
-              // 判定线
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: Container(
-                  height: 4,
-                  color: Colors.blue,
-                ),
-              ),
-            ],
+          child: CustomPaint(
+            size: Size(width, height),
+            painter: _ChartPainter(
+              notes: widget.notes,
+              color: color,
+              divides: divides,
+              selectedIndices: selectedIndices,
+              selectionRect: selectionRect,
+            ),
           ),
         );
       }),
@@ -255,49 +282,22 @@ class _ChartPainter extends CustomPainter {
   final List<double> divides;
   final List<int> selectedIndices;
   final Rect? selectionRect;
-  final double scrollOffset;
-  final double canvasHeight;
-  final double totalHeight;
   _ChartPainter({
     required this.notes,
     required this.color,
     required this.divides,
     required this.selectedIndices,
     required this.selectionRect,
-    required this.scrollOffset,
-    required this.canvasHeight,
-    required this.totalHeight,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
-    // 时间分度线（横线，主/副色）
-    double barHeight = 1280.0;
-    int barCount = (totalHeight ~/ barHeight);
-    for (int i = 0; i <= barCount; ++i) {
-      double y = i * barHeight - scrollOffset;
-      if (y >= 0 && y <= canvasHeight) {
-        canvas.drawLine(
-          Offset(0, y),
-          Offset(size.width, y),
-          Paint()
-            ..color = (i % 4 == 0)
-                ? Colors.white
-                : Colors.deepPurple.withOpacity(0.5)
-            ..strokeWidth = (i % 4 == 0) ? 3 : 1,
-        );
-      }
-    }
-    // x分度线（竖线，全灰色）
+    final Paint divPaint = Paint()
+      ..color = color.withOpacity(0.6)
+      ..strokeWidth = 1.0;
     for (final x in divides) {
       double dx = (x / 512.0) * size.width;
-      canvas.drawLine(
-        Offset(dx, 0),
-        Offset(dx, canvasHeight),
-        Paint()
-          ..color = Colors.grey.withOpacity(0.4)
-          ..strokeWidth = 1,
-      );
+      canvas.drawLine(Offset(dx, 0), Offset(dx, size.height), divPaint);
     }
 
     for (int i = 0; i < notes.length; ++i) {
@@ -306,14 +306,30 @@ class _ChartPainter extends CustomPainter {
         ..color = getNoteColor(note)
         ..style = PaintingStyle.fill;
       final double x = (note.x / 512.0) * size.width;
-      final double y = note.y - scrollOffset;
-      if (y < 0 || y > canvasHeight) continue;
-      if (selectedIndices.contains(i)) {
-        canvas.drawCircle(Offset(x, y), 14, Paint()..color = Colors.redAccent.withOpacity(0.2));
-        canvas.drawCircle(Offset(x, y), 10, notePaint..color = notePaint.color.withOpacity(1.0));
-        canvas.drawCircle(Offset(x, y), 12, Paint()..color = Colors.red..style = PaintingStyle.stroke..strokeWidth=2);
+      final double y = note.y;
+      if (note.type == NoteType.rain && note.endY != null) {
+        final double y2 = note.endY!;
+        // 画竖条
+        Rect rainRect = Rect.fromPoints(
+          Offset(x - 6, y),
+          Offset(x + 6, y2),
+        );
+        canvas.drawRect(rainRect, notePaint);
+        if (selectedIndices.contains(i)) {
+          canvas.drawRect(rainRect.inflate(2), Paint()..color = Colors.redAccent.withOpacity(0.2));
+          canvas.drawRect(rainRect, Paint()
+            ..color = Colors.red
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 2);
+        }
       } else {
-        canvas.drawCircle(Offset(x, y), 10, notePaint);
+        if (selectedIndices.contains(i)) {
+          canvas.drawCircle(Offset(x, y), 14, Paint()..color = Colors.redAccent.withOpacity(0.2));
+          canvas.drawCircle(Offset(x, y), 10, notePaint..color = notePaint.color.withOpacity(1.0));
+          canvas.drawCircle(Offset(x, y), 12, Paint()..color = Colors.red..style = PaintingStyle.stroke..strokeWidth=2);
+        } else {
+          canvas.drawCircle(Offset(x, y), 10, notePaint);
+        }
       }
     }
 
