@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/gestures.dart';
 import 'beat_color_util.dart';
 
 enum NoteType { normal, long, special, rain }
@@ -38,6 +39,12 @@ class EditorCanvas extends StatefulWidget {
   final Function(List<Note>) onNotesChanged;
   final Function(List<int>) onSelectNotes;
   final Function(void Function()) onRegisterDeleteHandler;
+  final double zoomScale;
+  final double playOffset;
+  final bool isPlaying;
+  final Function(double)? onScroll;
+  final Function(double)? onSeek;
+  final double totalHeight;
 
   const EditorCanvas({
     super.key,
@@ -51,180 +58,110 @@ class EditorCanvas extends StatefulWidget {
     required this.onNotesChanged,
     required this.onSelectNotes,
     required this.onRegisterDeleteHandler,
+    this.zoomScale = 1.0,
+    this.playOffset = 0.0,
+    this.isPlaying = false,
+    this.onScroll,
+    this.onSeek,
+    this.totalHeight = 40960, // 默认32小节*1280
   });
 
   @override
   State<EditorCanvas> createState() => _EditorCanvasState();
 }
 
-class _EditorCanvasState extends State<EditorCanvas> {
-  int? draggingIndex;
-  Offset? dragOffset;
-  Rect? selectionRect;
-  List<int> selectedIndices = [];
-  late FocusNode _focusNode;
+class _EditorCanvasState extends State<EditorCanvas> with SingleTickerProviderStateMixin {
+  late ScrollController _scrollController;
+  late double _zoomScale;
+  late double _lastPointerY;
+  bool _isDragging = false;
 
   @override
   void initState() {
     super.initState();
-    _focusNode = FocusNode();
-    widget.onRegisterDeleteHandler(_handleDelete);
+    _scrollController = ScrollController(
+      initialScrollOffset: widget.playOffset,
+    );
+    _zoomScale = widget.zoomScale;
+    _scrollController.addListener(() {
+      widget.onScroll?.call(_scrollController.offset);
+    });
   }
 
   @override
-  void dispose() {
-    _focusNode.dispose();
-    super.dispose();
+  void didUpdateWidget(covariant EditorCanvas oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.zoomScale != _zoomScale) {
+      setState(() {
+        _zoomScale = widget.zoomScale;
+      });
+    }
+    if (widget.playOffset != _scrollController.offset) {
+      _scrollController.jumpTo(widget.playOffset.clamp(0.0, widget.totalHeight));
+    }
   }
 
-  double _screenToX(double dx, double width) => (dx / width) * 512.0;
-  double _screenToY(double dy, double height) => dy;
-  double _xToScreen(double x, double width) => (x / 512.0) * width;
-  double _yToScreen(double y, double height) => y;
-
-  double _snapX(double x) {
-    if (widget.customDivides != null && widget.customDivides!.isNotEmpty) {
-      return widget.customDivides!.reduce((a, b) => (x - a).abs() < (x - b).abs() ? a : b);
-    }
-    return ((x / (512 / widget.xDivisions)).round()) * (512 / widget.xDivisions);
-  }
-
-  void _handleDelete() {
-    final newNotes = <Note>[];
-    for (int i = 0; i < widget.notes.length; ++i) {
-      if (!selectedIndices.contains(i)) newNotes.add(widget.notes[i].clone());
-    }
-    selectedIndices = [];
-    widget.onNotesChanged(newNotes);
-    widget.onSelectNotes(selectedIndices);
-    setState(() {});
+  double _findNearestDivision(double offset) {
+    double beat = 320 * _zoomScale;
+    double div = (offset / beat).round() * beat;
+    return div.clamp(0, widget.totalHeight - 1);
   }
 
   @override
   Widget build(BuildContext context) {
-    return Focus(
-      autofocus: true,
-      focusNode: _focusNode,
-      onKey: (node, event) {
-        if ((event.logicalKey == LogicalKeyboardKey.delete ||
-            event.logicalKey == LogicalKeyboardKey.backspace) &&
-            event is RawKeyDownEvent) {
-          _handleDelete();
-          return KeyEventResult.handled;
+    return Listener(
+      onPointerSignal: (e) {
+        if (e is PointerScrollEvent) {
+          double next = (_scrollController.offset + e.scrollDelta.dy * 1.2).clamp(0, widget.totalHeight - 1);
+          _scrollController.jumpTo(next);
+          widget.onScroll?.call(next);
         }
-        return KeyEventResult.ignored;
       },
-      child: LayoutBuilder(builder: (context, constraints) {
-        final width = constraints.maxWidth;
-        final height = constraints.maxHeight;
-        final divides = widget.customDivides ??
-            List.generate(widget.xDivisions + 1, (i) => 512.0 * i / widget.xDivisions);
-
-        final color = getColorForBeat(widget.beatStr);
-
-        return GestureDetector(
-          onTapDown: (detail) {
-            final local = detail.localPosition;
-            double x = _screenToX(local.dx, width);
-            double y = _screenToY(local.dy, height);
-            if (widget.snapToXDivision) x = _snapX(x);
-
-            int? hitIdx;
-            for (int i = 0; i < widget.notes.length; ++i) {
-              final note = widget.notes[i];
-              double noteX = _xToScreen(note.x, width);
-              double noteY = _yToScreen(note.y, height);
-              if ((Offset(noteX, noteY) - local).distance < 16) {
-                hitIdx = i;
-                break;
-              }
-            }
-
-            if (hitIdx != null) {
-              selectedIndices = [hitIdx];
-              widget.onSelectNotes(selectedIndices);
-              setState(() {});
-            } else {
-              widget.onAddNote(Note(
-                x: x,
-                y: y,
-                type: widget.selectedType,
-                beat: widget.beatStr,
-              ));
-              selectedIndices = [];
-              widget.onSelectNotes(selectedIndices);
-              setState(() {});
-            }
-          },
-          onPanStart: (detail) {
-            final local = detail.localPosition;
-            for (int i = 0; i < widget.notes.length; ++i) {
-              final note = widget.notes[i];
-              double noteX = _xToScreen(note.x, width);
-              double noteY = _yToScreen(note.y, height);
-              if ((Offset(noteX, noteY) - local).distance < 16) {
-                draggingIndex = i;
-                dragOffset = local - Offset(noteX, noteY);
-                return;
-              }
-            }
-            selectionRect = Rect.fromLTWH(local.dx, local.dy, 0, 0);
-            setState(() {});
-          },
-          onPanUpdate: (detail) {
-            final local = detail.localPosition;
-            if (draggingIndex != null) {
-              double x = _screenToX(local.dx - (dragOffset?.dx ?? 0), width);
-              double y = _screenToY(local.dy - (dragOffset?.dy ?? 0), height);
-              if (widget.snapToXDivision) x = _snapX(x);
-              final notes = widget.notes.map((e) => e.clone()).toList();
-              notes[draggingIndex!] = notes[draggingIndex!]
-                ..x = x.clamp(0, 512)
-                ..y = y.clamp(0, height.toDouble());
-              widget.onNotesChanged(notes);
-            } else if (selectionRect != null) {
-              final start = Offset(selectionRect!.left, selectionRect!.top);
-              final rect = Rect.fromPoints(start, local);
-              selectionRect = rect;
-              final hitIdxs = <int>[];
-              for (int i = 0; i < widget.notes.length; ++i) {
-                final note = widget.notes[i];
-                double noteX = _xToScreen(note.x, width);
-                double noteY = _yToScreen(note.y, height);
-                if (rect.contains(Offset(noteX, noteY))) hitIdxs.add(i);
-              }
-              selectedIndices = hitIdxs;
-              widget.onSelectNotes(selectedIndices);
-              setState(() {});
-            }
-          },
-          onPanEnd: (detail) {
-            draggingIndex = null;
-            dragOffset = null;
-            selectionRect = null;
-            setState(() {});
-          },
-          child: CustomPaint(
-            size: Size(width, height),
-            painter: _ChartPainter(
-              notes: widget.notes,
-              color: color,
-              divides: divides,
-              selectedIndices: selectedIndices,
-              selectionRect: selectionRect,
+      child: GestureDetector(
+        onPanStart: (details) {
+          _isDragging = true;
+          _lastPointerY = details.localPosition.dy;
+        },
+        onPanUpdate: (details) {
+          double delta = details.localPosition.dy - _lastPointerY;
+          double next = (_scrollController.offset - delta).clamp(0, widget.totalHeight - 1);
+          _scrollController.jumpTo(next);
+          widget.onScroll?.call(next);
+          _lastPointerY = details.localPosition.dy;
+        },
+        onPanEnd: (_) {
+          _isDragging = false;
+        },
+        child: Scrollbar(
+          controller: _scrollController,
+          thickness: 8,
+          child: SingleChildScrollView(
+            controller: _scrollController,
+            scrollDirection: Axis.vertical,
+            child: SizedBox(
+              width: double.infinity,
+              height: widget.totalHeight * _zoomScale,
+              child: CustomPaint(
+                size: Size.infinite,
+                painter: _ChartPainter(
+                  notes: widget.notes,
+                  color: getColorForBeat(widget.beatStr),
+                  divides: widget.customDivides ??
+                      List.generate(widget.xDivisions + 1, (i) => 512.0 * i / widget.xDivisions),
+                  selectedIndices: const [],
+                  selectionRect: null,
+                  zoomScale: _zoomScale,
+                  playOffset: _scrollController.offset,
+                  totalHeight: widget.totalHeight * _zoomScale,
+                  isPlaying: widget.isPlaying,
+                ),
+              ),
             ),
           ),
-        );
-      }),
+        ),
+      ),
     );
   }
-}
-
-Color getNoteColor(Note note) {
-  if (note.type == NoteType.rain) {
-    return rainNoteColor;
-  }
-  return getColorForBeat(note.beat);
 }
 
 class _ChartPainter extends CustomPainter {
@@ -233,40 +170,51 @@ class _ChartPainter extends CustomPainter {
   final List<double> divides;
   final List<int> selectedIndices;
   final Rect? selectionRect;
+  final double zoomScale;
+  final double playOffset;
+  final double totalHeight;
+  final bool isPlaying;
+
   _ChartPainter({
     required this.notes,
     required this.color,
     required this.divides,
     required this.selectedIndices,
     required this.selectionRect,
+    required this.zoomScale,
+    required this.playOffset,
+    required this.totalHeight,
+    required this.isPlaying,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
-    final Paint divPaint = Paint()
-      ..color = color.withOpacity(0.6)
-      ..strokeWidth = 1.0;
-    for (final x in divides) {
-      double dx = (x / 512.0) * size.width;
-      canvas.drawLine(Offset(dx, 0), Offset(dx, size.height), divPaint);
+    // 分度线
+    for (double y = 0; y < size.height; y += 320 * zoomScale) {
+      bool isBar = ((y / (1280 * zoomScale)).abs() % 1) < 0.01;
+      canvas.drawLine(
+          Offset(0, y),
+          Offset(size.width, y),
+          Paint()
+            ..color = isBar ? Colors.white : color.withOpacity(0.6)
+            ..strokeWidth = isBar ? 3 : 1);
     }
-
-    for (int i = 0; i < notes.length; ++i) {
-      final note = notes[i];
-      final notePaint = Paint()
-        ..color = getNoteColor(note)
-        ..style = PaintingStyle.fill;
-      final double x = (note.x / 512.0) * size.width;
-      final double y = note.y;
-      if (selectedIndices.contains(i)) {
-        canvas.drawCircle(Offset(x, y), 14, Paint()..color = Colors.redAccent.withOpacity(0.2));
-        canvas.drawCircle(Offset(x, y), 10, notePaint..color = notePaint.color.withOpacity(1.0));
-        canvas.drawCircle(Offset(x, y), 12, Paint()..color = Colors.red..style = PaintingStyle.stroke..strokeWidth=2);
-      } else {
-        canvas.drawCircle(Offset(x, y), 10, notePaint);
-      }
+    // 当前播放线
+    if (isPlaying) {
+      canvas.drawLine(
+          Offset(0, playOffset),
+          Offset(size.width, playOffset),
+          Paint()
+            ..color = Colors.blue
+            ..strokeWidth = 4);
     }
-
+    // notes
+    for (final note in notes) {
+      double x = note.x / 512.0 * size.width;
+      double y = note.y * zoomScale;
+      canvas.drawCircle(Offset(x, y), 10, Paint()..color = getNoteColor(note));
+    }
+    // 选区
     if (selectionRect != null) {
       final rect = selectionRect!;
       canvas.drawRect(
