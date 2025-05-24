@@ -61,6 +61,12 @@ class _EditorPageState extends State<EditorPage> {
   // 可编辑区宽度
   final double editorWidth = 512;
 
+  // 新增BPM、offset、速度、分度量
+  double bpm = 120;
+  double offset = 0;
+  double scrollSpeed = 1.0; // px/ms
+  double divisionBeat = 1.0; // 小节分度（1=每小节一线，0.5=半小节一线）
+
   @override
   void initState() {
     super.initState();
@@ -156,13 +162,36 @@ class _EditorPageState extends State<EditorPage> {
     });
   }
 
+  // 自动读取bpm/offset与分度
   Future<void> importChartFromPath(String path) async {
     try {
       final json = await importMalodyChart(path);
+      double _bpm = 120;
+      double _offset = 0;
+      double _divisionBeat = 1.0; // 默认每小节一线
+      if (json['time'] is List && json['time'].isNotEmpty && json['time'][0]['bpm'] != null) {
+        _bpm = (json['time'][0]['bpm'] as num).toDouble();
+      }
+      // 通用offset查找
+      if (json['meta'] != null && json['meta']['song'] != null && json['meta']['song']['offset'] != null) {
+        _offset = (json['meta']['song']['offset'] as num).toDouble();
+      } else if (json['meta'] != null && json['meta']['offset'] != null) {
+        _offset = (json['meta']['offset'] as num).toDouble();
+      }
+      // 检查extra divide
+      if (json['extra'] != null && json['extra']['test'] != null && json['extra']['test']['divide'] != null) {
+        int d = json['extra']['test']['divide'];
+        if (d > 0) _divisionBeat = 1.0 / d;
+      }
       setState(() {
         chartJson = json;
         chartFilePath = path;
         notes = [];
+        bpm = _bpm;
+        offset = _offset;
+        divisionBeat = _divisionBeat;
+        // 每分钟bpm小节，1小节1280px，每秒bpm/60小节→每秒(px) = bpm/60*1280
+        scrollSpeed = bpm / 60.0 * 1280.0;
         if (json['note'] is List) {
           notes = parseMalodyNotes(json['note']);
         } else if (json['notes'] is List) {
@@ -280,7 +309,9 @@ class _EditorPageState extends State<EditorPage> {
       } else {
         setState(() {
           currentTime += 0.016;
-          scrollOffset = (currentTime / songDuration) * (totalHeight - canvasHeight);
+          // 带offset，视觉时间
+          double visualTime = currentTime + offset / 1000.0;
+          scrollOffset = visualTime * scrollSpeed;
         });
       }
     });
@@ -295,7 +326,15 @@ class _EditorPageState extends State<EditorPage> {
   void _seek(double t) {
     setState(() {
       currentTime = t;
-      scrollOffset = (currentTime / songDuration) * (totalHeight - canvasHeight);
+      double visualTime = currentTime + offset / 1000.0;
+      scrollOffset = visualTime * scrollSpeed;
+    });
+  }
+
+  // 分度量调节（如滑块）
+  void _onDivisionBeatChanged(double v) {
+    setState(() {
+      divisionBeat = v;
     });
   }
 
@@ -357,28 +396,38 @@ class _EditorPageState extends State<EditorPage> {
           // 中间主编辑区
           Expanded(
             child: Center(
-              child: Container(
-                width: editorWidth,
-                color: Colors.transparent,
-                child: EditorCanvas(
-                  notes: notes,
-                  editorWidth: editorWidth,
-                  scrollOffset: scrollOffset,
-                  canvasHeight: canvasHeight,
-                  totalHeight: totalHeight,
-                  selectedType: selectedType,
-                  xDivisions: xDivisions,
-                  snapToXDivision: snapToXDivision,
-                  customDivides: customDivides,
-                  beatStr: currentBeat,
-                  onAddNote: (note) {
+              child: Listener(
+                onPointerSignal: (event) {
+                  if (event is PointerScrollEvent) {
                     setState(() {
-                      notes.add(note);
+                      scrollOffset = (scrollOffset + event.scrollDelta.dy * 2).clamp(0, totalHeight - canvasHeight);
                     });
-                  },
-                  onNotesChanged: _handleNotesChanged,
-                  onSelectNotes: _handleSelectNotes,
-                  onRegisterDeleteHandler: _registerDeleteHandler,
+                  }
+                },
+                child: Container(
+                  width: editorWidth,
+                  color: Colors.transparent,
+                  child: EditorCanvas(
+                    notes: notes,
+                    editorWidth: editorWidth,
+                    scrollOffset: scrollOffset,
+                    canvasHeight: canvasHeight,
+                    totalHeight: totalHeight,
+                    selectedType: selectedType,
+                    xDivisions: xDivisions,
+                    snapToXDivision: snapToXDivision,
+                    customDivides: customDivides,
+                    beatStr: currentBeat,
+                    onAddNote: (note) {
+                      setState(() {
+                        notes.add(note);
+                      });
+                    },
+                    onNotesChanged: _handleNotesChanged,
+                    onSelectNotes: _handleSelectNotes,
+                    onRegisterDeleteHandler: _registerDeleteHandler,
+                    divisionBeat: divisionBeat,
+                  ),
                 ),
               ),
             ),
@@ -412,6 +461,24 @@ class _EditorPageState extends State<EditorPage> {
               chartMeta: chartJson?['meta'],
               customDivides: customDivides,
               onCustomDivideDialog: _handleCustomDivideDialog,
+              // 新增分度调节滑块
+              extraWidgets: [
+                Row(
+                  children: [
+                    const Text("分度(小节):", style: TextStyle(fontSize: 12)),
+                    Expanded(
+                      child: Slider(
+                        min: 0.25,
+                        max: 2.0,
+                        divisions: 7,
+                        value: divisionBeat,
+                        label: "${divisionBeat.toStringAsFixed(2)}",
+                        onChanged: _onDivisionBeatChanged,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
           ),
         ],

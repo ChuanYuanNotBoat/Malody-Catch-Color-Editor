@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'beat_color_util.dart';
 
 enum NoteType { normal, rain }
 
@@ -9,7 +8,7 @@ class Note {
   double y; // 起始y
   double? endY; // rain音符才有
   NoteType type;
-  String beat; // 如"1/4"
+  dynamic beat; // 支持List或String
   bool selected;
   Note({
     required this.x,
@@ -45,6 +44,7 @@ class EditorCanvas extends StatefulWidget {
   final Function(List<Note>) onNotesChanged;
   final Function(List<int>) onSelectNotes;
   final Function(void Function()) onRegisterDeleteHandler;
+  final double divisionBeat;
 
   const EditorCanvas({
     super.key,
@@ -62,6 +62,7 @@ class EditorCanvas extends StatefulWidget {
     required this.onNotesChanged,
     required this.onSelectNotes,
     required this.onRegisterDeleteHandler,
+    required this.divisionBeat,
   });
 
   @override
@@ -131,8 +132,6 @@ class _EditorCanvasState extends State<EditorCanvas> {
         final divides = widget.customDivides ??
             List.generate(widget.xDivisions + 1, (i) => 512.0 * i / widget.xDivisions);
 
-        final color = getColorForBeat(widget.beatStr);
-
         return GestureDetector(
           onTapDown: (detail) {
             final local = detail.localPosition;
@@ -148,8 +147,8 @@ class _EditorCanvasState extends State<EditorCanvas> {
               if (note.type == NoteType.rain && note.endY != null) {
                 double noteY2 = _yToScreen(note.endY!, height);
                 Rect rect = Rect.fromPoints(
-                  Offset(noteX - 8, noteY),
-                  Offset(noteX + 8, noteY2),
+                  Offset(0, noteY),
+                  Offset(width, noteY2),
                 );
                 if (rect.contains(local)) {
                   hitIdx = i;
@@ -188,8 +187,8 @@ class _EditorCanvasState extends State<EditorCanvas> {
               if (note.type == NoteType.rain && note.endY != null) {
                 double noteY2 = _yToScreen(note.endY!, height);
                 Rect rect = Rect.fromPoints(
-                  Offset(noteX - 8, noteY),
-                  Offset(noteX + 8, noteY2),
+                  Offset(0, noteY),
+                  Offset(width, noteY2),
                 );
                 if (rect.contains(local)) {
                   draggingIndex = i;
@@ -239,8 +238,8 @@ class _EditorCanvasState extends State<EditorCanvas> {
                 if (note.type == NoteType.rain && note.endY != null) {
                   double noteY2 = _yToScreen(note.endY!, height);
                   Rect rectNote = Rect.fromPoints(
-                    Offset(noteX - 8, noteY),
-                    Offset(noteX + 8, noteY2),
+                    Offset(0, noteY),
+                    Offset(width, noteY2),
                   );
                   if (rect.overlaps(rectNote)) hitIdxs.add(i);
                 } else {
@@ -262,7 +261,6 @@ class _EditorCanvasState extends State<EditorCanvas> {
             size: Size(width, height),
             painter: _ChartPainter(
               notes: widget.notes,
-              color: color,
               divides: divides,
               selectedIndices: selectedIndices,
               selectionRect: selectionRect,
@@ -270,6 +268,7 @@ class _EditorCanvasState extends State<EditorCanvas> {
               canvasHeight: widget.canvasHeight,
               totalHeight: widget.totalHeight,
               editorWidth: widget.editorWidth,
+              divisionBeat: widget.divisionBeat,
             ),
           ),
         );
@@ -278,16 +277,36 @@ class _EditorCanvasState extends State<EditorCanvas> {
   }
 }
 
-Color getNoteColor(Note note) {
-  if (note.type == NoteType.rain) {
-    return rainNoteColor;
+Color getColorForBeatDenom(dynamic beat) {
+  int denom = 4;
+  if (beat is List && beat.length == 3) {
+    denom = beat[2] is int ? beat[2] : int.tryParse(beat[2].toString()) ?? 4;
+  } else if (beat is String && beat.contains('/')) {
+    denom = int.tryParse(beat.split('/').last) ?? 4;
   }
-  return getColorForBeat(note.beat);
+  switch (denom) {
+    case 1:
+      return const Color(0xFFFF0000); // 赤
+    case 2:
+      return const Color(0xFF00BFFF); // 水色
+    case 3:
+    case 6:
+    case 12:
+    case 24:
+      return const Color(0xFF00CC66); // 緑
+    case 4:
+      return const Color(0xFFA020F0); // 紫
+    case 8:
+    case 16:
+    case 32:
+      return const Color(0xFFFFD700); // 黄
+    default:
+      return const Color(0xFFA020F0); // 紫
+  }
 }
 
 class _ChartPainter extends CustomPainter {
   final List<Note> notes;
-  final Color color;
   final List<double> divides;
   final List<int> selectedIndices;
   final Rect? selectionRect;
@@ -295,9 +314,9 @@ class _ChartPainter extends CustomPainter {
   final double canvasHeight;
   final double totalHeight;
   final double editorWidth;
+  final double divisionBeat;
   _ChartPainter({
     required this.notes,
-    required this.color,
     required this.divides,
     required this.selectedIndices,
     required this.selectionRect,
@@ -305,28 +324,31 @@ class _ChartPainter extends CustomPainter {
     required this.canvasHeight,
     required this.totalHeight,
     required this.editorWidth,
+    required this.divisionBeat,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
-    // y轴分度线（主/副色）
+    // y轴时间分度线
     double barHeight = 1280.0;
-    int barCount = (totalHeight ~/ barHeight);
-    for (int i = 0; i <= barCount; ++i) {
-      double y = i * barHeight - scrollOffset;
+    double divisionPx = barHeight * divisionBeat;
+    int divCount = (totalHeight / divisionPx).ceil();
+    for (int i = 0; i <= divCount; ++i) {
+      double y = i * divisionPx - scrollOffset;
       if (y >= 0 && y <= canvasHeight) {
+        bool isStrong = (i * divisionBeat) % 4 == 0;
         canvas.drawLine(
           Offset(0, y),
           Offset(size.width, y),
           Paint()
-            ..color = (i % 4 == 0)
+            ..color = isStrong
                 ? Colors.white
                 : Colors.deepPurple.withOpacity(0.6)
-            ..strokeWidth = (i % 4 == 0) ? 3 : 1,
+            ..strokeWidth = isStrong ? 3 : 1,
         );
       }
     }
-    // x轴分度线（灰色）
+    // x轴分度线
     for (final x in divides) {
       double dx = (x / 512.0) * size.width;
       canvas.drawLine(
@@ -346,33 +368,33 @@ class _ChartPainter extends CustomPainter {
 
     for (int i = 0; i < notes.length; ++i) {
       final note = notes[i];
-      final notePaint = Paint()
-        ..color = getNoteColor(note)
-        ..style = PaintingStyle.fill;
-      final double x = (note.x / 512.0) * size.width;
-      final double y = note.y - scrollOffset;
       if (note.type == NoteType.rain && note.endY != null) {
+        // rain：塞满x0-512的蓝色半透明方块
+        final double y1 = note.y - scrollOffset;
         final double y2 = note.endY! - scrollOffset;
-        Rect rainRect = Rect.fromPoints(
-          Offset(x - 6, y),
-          Offset(x + 6, y2),
-        );
-        canvas.drawRect(rainRect, notePaint);
+        final rect = Rect.fromLTRB(0, y1, size.width, y2);
+        final paint = Paint()..color = const Color(0x8842A5F5); // 半透明蓝色
+        canvas.drawRect(rect, paint);
         if (selectedIndices.contains(i)) {
-          canvas.drawRect(rainRect.inflate(2), Paint()..color = Colors.redAccent.withOpacity(0.2));
-          canvas.drawRect(rainRect, Paint()
+          canvas.drawRect(rect.inflate(2), Paint()..color = Colors.redAccent.withOpacity(0.2));
+          canvas.drawRect(rect, Paint()
             ..color = Colors.red
             ..style = PaintingStyle.stroke
             ..strokeWidth = 2);
         }
+        continue;
+      }
+      final notePaint = Paint()
+        ..color = getColorForBeatDenom(note.beat)
+        ..style = PaintingStyle.fill;
+      final double x = (note.x / 512.0) * size.width;
+      final double y = note.y - scrollOffset;
+      if (selectedIndices.contains(i)) {
+        canvas.drawCircle(Offset(x, y), 14, Paint()..color = Colors.redAccent.withOpacity(0.2));
+        canvas.drawCircle(Offset(x, y), 10, notePaint..color = notePaint.color.withOpacity(1.0));
+        canvas.drawCircle(Offset(x, y), 12, Paint()..color = Colors.red..style = PaintingStyle.stroke..strokeWidth=2);
       } else {
-        if (selectedIndices.contains(i)) {
-          canvas.drawCircle(Offset(x, y), 14, Paint()..color = Colors.redAccent.withOpacity(0.2));
-          canvas.drawCircle(Offset(x, y), 10, notePaint..color = notePaint.color.withOpacity(1.0));
-          canvas.drawCircle(Offset(x, y), 12, Paint()..color = Colors.red..style = PaintingStyle.stroke..strokeWidth=2);
-        } else {
-          canvas.drawCircle(Offset(x, y), 10, notePaint);
-        }
+        canvas.drawCircle(Offset(x, y), 10, notePaint);
       }
     }
 
