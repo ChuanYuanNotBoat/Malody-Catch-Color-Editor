@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'beat_color_util.dart';
+import 'package:flutter/gestures.dart';
 
 enum NoteType { normal, rain }
 
