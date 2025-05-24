@@ -1,25 +1,47 @@
 import 'package:flutter/material.dart';
 
-Color getNoteColorByDivide(int divide) {
-  switch (divide) {
+const Map<String, Color> beatColorMap = {
+  "1/1": Colors.red,
+  "1/2": Colors.cyan,
+  "1/3": Colors.green,
+  "1/4": Colors.purple,
+  "1/6": Colors.green,
+  "1/8": Colors.yellow,
+  "1/12": Colors.green,
+  "1/16": Colors.yellow,
+  "1/24": Colors.green,
+  "1/32": Colors.yellow,
+};
+
+const Color rainNoteColor = Colors.cyan;
+
+/// 获取分度字符串
+String getBeatString(int xDiv) {
+  switch (xDiv) {
     case 1:
-      return Colors.red;
+      return "1/1";
     case 2:
-      return Colors.cyan;
+      return "1/2";
     case 3:
-    case 6:
-    case 12:
-    case 24:
-      return Colors.green;
+      return "1/3";
     case 4:
-      return Colors.purple;
+      return "1/4";
+    case 6:
+      return "1/6";
     case 8:
-      return Colors.yellow;
+      return "1/8";
+    case 12:
+      return "1/12";
     case 16:
+      return "1/16";
+    case 24:
+      return "1/24";
     case 32:
-      return Colors.yellow;
+      return "1/32";
     default:
-      // 其它分度可自定义，默认紫色
-      return Colors.purple;
+      return "1/$xDiv";
   }
 }
+
+/// 获取非rain音符的颜色，优先根据分度字符串
+Color getColorForBeat(String beat) => beatColorMap[beat] ?? Colors.purple;
