@@ -10,7 +10,6 @@ import 'editor_right_panel.dart';
 import 'malody_import_export.dart';
 import 'divide_preview_bar.dart';
 import 'divide_adjust_dialog.dart';
-import 'beat_color_util.dart';
 import 'preview_panel.dart';
 import 'density_bar.dart';
 
@@ -66,7 +65,7 @@ class _EditorPageState extends State<EditorPage> {
   double bpm = 120;
   double offset = 0;
   double scrollSpeed = 1.0; // px/ms
-  double divisionBeat = 1.0; // 小节分度（1=每小节一线，0.5=半小节一线）
+  int division = 4; // 1/4初始
 
   @override
   void initState() {
@@ -163,26 +162,19 @@ class _EditorPageState extends State<EditorPage> {
     });
   }
 
-  // 自动读取bpm/offset与分度
   Future<void> importChartFromPath(String path) async {
     try {
       final json = await importMalodyChart(path);
       double _bpm = 120;
       double _offset = 0;
-      double _divisionBeat = 1.0; // 默认每小节一线
+      int _division = 4;
       if (json['time'] is List && json['time'].isNotEmpty && json['time'][0]['bpm'] != null) {
         _bpm = (json['time'][0]['bpm'] as num).toDouble();
       }
-      // 通用offset查找
       if (json['meta'] != null && json['meta']['song'] != null && json['meta']['song']['offset'] != null) {
         _offset = (json['meta']['song']['offset'] as num).toDouble();
       } else if (json['meta'] != null && json['meta']['offset'] != null) {
         _offset = (json['meta']['offset'] as num).toDouble();
-      }
-      // 检查extra divide
-      if (json['extra'] != null && json['extra']['test'] != null && json['extra']['test']['divide'] != null) {
-        int d = json['extra']['test']['divide'];
-        if (d > 0) _divisionBeat = 1.0 / d;
       }
       setState(() {
         chartJson = json;
@@ -190,8 +182,7 @@ class _EditorPageState extends State<EditorPage> {
         notes = [];
         bpm = _bpm;
         offset = _offset;
-        divisionBeat = _divisionBeat;
-        // 每分钟bpm小节，1小节1280px，每秒bpm/60小节→每秒(px) = bpm/60*1280
+        division = _division;
         scrollSpeed = bpm / 60.0 * 1280.0;
         if (json['note'] is List) {
           notes = parseMalodyNotes(json['note']);
@@ -204,7 +195,7 @@ class _EditorPageState extends State<EditorPage> {
             type: NoteType.values.firstWhere(
                     (e) => e.name == (n['type'] ?? 'normal'),
                 orElse: () => NoteType.normal),
-            beat: n['beat'] ?? getBeatString(xDivisions),
+            beat: n['beat'] ?? [0, 0, 4],
           ))
               .toList();
         }
@@ -270,20 +261,19 @@ class _EditorPageState extends State<EditorPage> {
   String _fileName(String path) => path.split(RegExp(r'[\/\\]')).last;
 
   void _handleCustomDivideDialog() async {
-    final List<double> initDivides = customDivides ??
-        List.generate(xDivisions + 1, (i) => editorWidth * i / xDivisions);
-    final result = await showDialog<List<double>>(
+    final result = await showDialog<int>(
       context: context,
-      builder: (ctx) => DivideAdjustDialog(initialDivides: initDivides),
+      builder: (ctx) => DivideAdjustDialog(
+        initialDivision: division,
+        onDivisionChanged: (v) { setState(() { division = v; }); },
+      ),
     );
     if (result != null) {
       setState(() {
-        customDivides = result;
+        division = result;
       });
     }
   }
-
-  String get currentBeat => getBeatString(xDivisions);
 
   List<int> get densityList {
     int densityBars = 100;
@@ -310,7 +300,6 @@ class _EditorPageState extends State<EditorPage> {
       } else {
         setState(() {
           currentTime += 0.016;
-          // 带offset，视觉时间
           double visualTime = currentTime + offset / 1000.0;
           scrollOffset = visualTime * scrollSpeed;
         });
@@ -329,13 +318,6 @@ class _EditorPageState extends State<EditorPage> {
       currentTime = t;
       double visualTime = currentTime + offset / 1000.0;
       scrollOffset = visualTime * scrollSpeed;
-    });
-  }
-
-  // 分度量调节（如滑块）
-  void _onDivisionBeatChanged(double v) {
-    setState(() {
-      divisionBeat = v;
     });
   }
 
@@ -410,24 +392,11 @@ class _EditorPageState extends State<EditorPage> {
                   color: Colors.transparent,
                   child: EditorCanvas(
                     notes: notes,
+                    division: division,
                     editorWidth: editorWidth,
                     scrollOffset: scrollOffset,
                     canvasHeight: canvasHeight,
                     totalHeight: totalHeight,
-                    selectedType: selectedType,
-                    xDivisions: xDivisions,
-                    snapToXDivision: snapToXDivision,
-                    customDivides: customDivides,
-                    beatStr: currentBeat,
-                    onAddNote: (note) {
-                      setState(() {
-                        notes.add(note);
-                      });
-                    },
-                    onNotesChanged: _handleNotesChanged,
-                    onSelectNotes: _handleSelectNotes,
-                    onRegisterDeleteHandler: _registerDeleteHandler,
-                    divisionBeat: divisionBeat,
                   ),
                 ),
               ),
@@ -445,13 +414,12 @@ class _EditorPageState extends State<EditorPage> {
                 });
               },
               xDivisions: xDivisions,
-              snapToXDivision: snapToXDivision,
               onXDivChanged: (v) {
                 setState(() {
                   xDivisions = v;
-                  customDivides = null;
                 });
               },
+              snapToXDivision: snapToXDivision,
               onSnapChanged: (v) {
                 setState(() {
                   snapToXDivision = v;
@@ -467,12 +435,10 @@ class _EditorPageState extends State<EditorPage> {
         ],
       ),
       bottomNavigationBar: DividePreviewBar(
-        xDivisions: xDivisions,
-        customDivides: customDivides,
-        beatStr: currentBeat,
-        onCustomDividesChanged: (divides) {
+        division: division,
+        onDivisionChanged: (v) {
           setState(() {
-            customDivides = divides;
+            division = v;
           });
         },
       ),

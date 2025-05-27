@@ -29,7 +29,7 @@ class Note {
 
 class EditorCanvas extends StatelessWidget {
   final List<Note> notes;
-  final int division; // 新增：当前分度
+  final int division;
   final double editorWidth;
   final double scrollOffset;
   final double canvasHeight;
