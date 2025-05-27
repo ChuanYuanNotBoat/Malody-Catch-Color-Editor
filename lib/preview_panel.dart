@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'editor_canvas.dart'; // 确保 getColorForBeatDenom 可用
+import 'editor_canvas.dart';
 
 class PreviewPanel extends StatelessWidget {
   final List<Note> notes;

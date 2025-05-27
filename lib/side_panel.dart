@@ -1,78 +1,58 @@
 import 'package:flutter/material.dart';
-import 'editor_canvas.dart';
+import 'preview_panel.dart';
+import 'density_bar.dart';
 
-class PreviewPanel extends StatelessWidget {
-  final List<Note> notes;
+class SidePanel extends StatelessWidget {
+  final List notes;
   final int currentBar;
   final int previewRangeBars;
   final int barCount;
   final double width;
   final double height;
+  final List<int> densityList;
+  final double currentTime;
+  final double songDuration;
+  final void Function(double) onSeek;
 
-  const PreviewPanel({
+  const SidePanel({
     super.key,
     required this.notes,
     required this.currentBar,
-    this.previewRangeBars = 4,
+    required this.previewRangeBars,
     required this.barCount,
-    this.width = 40,
-    this.height = 300,
+    required this.width,
+    required this.height,
+    required this.densityList,
+    required this.currentTime,
+    required this.songDuration,
+    required this.onSeek,
   });
 
   @override
   Widget build(BuildContext context) {
-    int startBar = (currentBar - previewRangeBars).clamp(0, barCount - 1);
-    int endBar = (currentBar + previewRangeBars).clamp(0, barCount - 1);
-    List<Note> showNotes = notes.where((n) => n.bar >= startBar && n.bar <= endBar).toList();
-
-    return Container(
-      width: width,
-      height: height,
-      child: CustomPaint(
-        painter: _PreviewPainter(
-          showNotes: showNotes,
-          startBar: startBar,
-          endBar: endBar,
-          totalBar: barCount,
+    return Column(
+      children: [
+        Expanded(
+          flex: 1,
+          child: PreviewPanel(
+            notes: notes,
+            currentBar: currentBar,
+            previewRangeBars: previewRangeBars,
+            barCount: barCount,
+            width: width,
+            height: height,
+          ),
         ),
-      ),
+        Expanded(
+          flex: 1,
+          child: DensityBar(
+            densityList: densityList,
+            currentTime: currentTime,
+            songDuration: songDuration,
+            onSeek: onSeek,
+          ),
+        ),
+      ],
     );
   }
-}
-
-class _PreviewPainter extends CustomPainter {
-  final List<Note> showNotes;
-  final int startBar;
-  final int endBar;
-  final int totalBar;
-
-  _PreviewPainter({
-    required this.showNotes,
-    required this.startBar,
-    required this.endBar,
-    required this.totalBar,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    int barRange = endBar - startBar + 1;
-    for (final note in showNotes) {
-      double y = size.height -
-          ((note.bar - startBar) / barRange) * size.height;
-      double x = note.x / 512.0 * size.width;
-      canvas.drawCircle(Offset(x, y), 2, Paint()..color = getNoteColor(note));
-    }
-    // 中心线
-    double centerY = size.height - ((0.5) * size.height);
-    canvas.drawLine(
-      Offset(0, centerY),
-      Offset(size.width, centerY),
-      Paint()
-        ..color = Colors.blue
-        ..strokeWidth = 2,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }

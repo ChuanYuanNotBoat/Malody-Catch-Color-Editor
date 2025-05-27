@@ -121,7 +121,7 @@ Future<void> exportMczFileWithOriginalNames({
   }
 }
 
-/// 选择导出文件路径
+// 选择导出文件路径
 Future<String?> pickMalodySavePath({required bool zip}) async {
   return await FilePicker.platform.saveFile(
     dialogTitle: "选择导出位置",
@@ -131,7 +131,7 @@ Future<String?> pickMalodySavePath({required bool zip}) async {
   );
 }
 
-/// 解析 Malody Catch notes (兼容 rain 长条)
+// 解析 Malody Catch notes (兼容 rain 长条)
 List<Note> parseMalodyNotes(List<dynamic> malodyNotes) {
   List<Note> result = [];
   for (var n in malodyNotes) {
@@ -166,7 +166,7 @@ List<Note> parseMalodyNotes(List<dynamic> malodyNotes) {
   return result;
 }
 
-/// Note -> Malody note (支持rain endbeat)
+// Note -> Malody note (支持rain endbeat)
 Map<String, dynamic> noteToMalodyMap(Note n) {
   int bar = (n.y ~/ 1280);
   double restY = n.y - bar * 1280;
