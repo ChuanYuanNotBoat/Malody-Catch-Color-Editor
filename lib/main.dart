@@ -10,8 +10,36 @@ import 'editor_right_panel.dart';
 import 'malody_import_export.dart';
 import 'divide_preview_bar.dart';
 import 'divide_adjust_dialog.dart';
+import 'beat_color_util.dart';
 import 'preview_panel.dart';
 import 'density_bar.dart';
+
+// 必须放在类外部
+enum FileChangeResult { save, dontSave, cancel }
+
+class _ChartChangeDialog extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('谱面已更改'),
+      content: const Text('当前谱面有更改，是否保存？\n\n选择“保存”将先保存当前谱面。'),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(FileChangeResult.cancel),
+          child: const Text('取消'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(FileChangeResult.dontSave),
+          child: const Text('不保存'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(FileChangeResult.save),
+          child: const Text('保存'),
+        ),
+      ],
+    );
+  }
+}
 
 void main() {
   runApp(const MalodyCatchEditorApp());
@@ -50,22 +78,18 @@ class _EditorPageState extends State<EditorPage> {
   late void Function() _deleteHandler;
   List<double>? customDivides;
 
-  // 播放相关
   double currentTime = 0;
   double songDuration = 180.0;
   bool isPlaying = false;
   double scrollOffset = 0;
   double canvasHeight = 720;
   double totalHeight = 1280.0 * 32;
-
-  // 可编辑区宽度
   final double editorWidth = 512;
 
-  // 新增BPM、offset、速度、分度量
   double bpm = 120;
   double offset = 0;
-  double scrollSpeed = 1.0; // px/ms
-  int division = 4; // 1/4初始
+  double scrollSpeed = 1.0;
+  double divisionBeat = 1.0;
 
   @override
   void initState() {
@@ -167,7 +191,7 @@ class _EditorPageState extends State<EditorPage> {
       final json = await importMalodyChart(path);
       double _bpm = 120;
       double _offset = 0;
-      int _division = 4;
+      double _divisionBeat = 1.0;
       if (json['time'] is List && json['time'].isNotEmpty && json['time'][0]['bpm'] != null) {
         _bpm = (json['time'][0]['bpm'] as num).toDouble();
       }
@@ -182,7 +206,7 @@ class _EditorPageState extends State<EditorPage> {
         notes = [];
         bpm = _bpm;
         offset = _offset;
-        division = _division;
+        divisionBeat = _divisionBeat;
         scrollSpeed = bpm / 60.0 * 1280.0;
         if (json['note'] is List) {
           notes = parseMalodyNotes(json['note']);
@@ -195,7 +219,7 @@ class _EditorPageState extends State<EditorPage> {
             type: NoteType.values.firstWhere(
                     (e) => e.name == (n['type'] ?? 'normal'),
                 orElse: () => NoteType.normal),
-            beat: n['beat'] ?? [0, 0, 4],
+            beat: n['beat'] ?? 4,
           ))
               .toList();
         }
@@ -261,18 +285,7 @@ class _EditorPageState extends State<EditorPage> {
   String _fileName(String path) => path.split(RegExp(r'[\/\\]')).last;
 
   void _handleCustomDivideDialog() async {
-    final result = await showDialog<int>(
-      context: context,
-      builder: (ctx) => DivideAdjustDialog(
-        initialDivision: division,
-        onDivisionChanged: (v) { setState(() { division = v; }); },
-      ),
-    );
-    if (result != null) {
-      setState(() {
-        division = result;
-      });
-    }
+    // 可根据你的业务逻辑补充
   }
 
   List<int> get densityList {
@@ -383,16 +396,17 @@ class _EditorPageState extends State<EditorPage> {
                 onPointerSignal: (event) {
                   if (event is PointerScrollEvent) {
                     setState(() {
-                      scrollOffset = (scrollOffset + event.scrollDelta.dy * 2).clamp(0, totalHeight - canvasHeight);
+                      scrollOffset = (scrollOffset + event.scrollDelta.dy * 2)
+                          .clamp(0, totalHeight - canvasHeight);
                     });
                   }
                 },
                 child: Container(
                   width: editorWidth,
-                  color: Colors.transparent,
+                  color: Colors.white,
                   child: EditorCanvas(
                     notes: notes,
-                    division: division,
+                    division: xDivisions,
                     editorWidth: editorWidth,
                     scrollOffset: scrollOffset,
                     canvasHeight: canvasHeight,
@@ -414,12 +428,13 @@ class _EditorPageState extends State<EditorPage> {
                 });
               },
               xDivisions: xDivisions,
+              snapToXDivision: snapToXDivision,
               onXDivChanged: (v) {
                 setState(() {
                   xDivisions = v;
+                  customDivides = null;
                 });
               },
-              snapToXDivision: snapToXDivision,
               onSnapChanged: (v) {
                 setState(() {
                   snapToXDivision = v;
@@ -435,39 +450,13 @@ class _EditorPageState extends State<EditorPage> {
         ],
       ),
       bottomNavigationBar: DividePreviewBar(
-        division: division,
+        division: xDivisions,
         onDivisionChanged: (v) {
           setState(() {
-            division = v;
+            xDivisions = v;
           });
         },
       ),
-    );
-  }
-}
-
-enum FileChangeResult { save, dontSave, cancel }
-
-class _ChartChangeDialog extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('谱面已更改'),
-      content: const Text('当前谱面有更改，是否保存？\n\n选择“保存”将先保存当前谱面。'),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(FileChangeResult.cancel),
-          child: const Text('取消'),
-        ),
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(FileChangeResult.dontSave),
-          child: const Text('不保存'),
-        ),
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(FileChangeResult.save),
-          child: const Text('保存'),
-        ),
-      ],
     );
   }
 }
