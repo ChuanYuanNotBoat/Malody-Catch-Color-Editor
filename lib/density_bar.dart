@@ -1,53 +1,73 @@
 import 'package:flutter/material.dart';
-import 'editor_canvas.dart';
 
 class DensityBar extends StatelessWidget {
-  final List<Note> notes;
-  final int barCount;
-  final double width;
-  final double height;
+  final List<int> densityList;
+  final double currentTime;
+  final double songDuration;
+  final Function(double) onSeek;
 
   const DensityBar({
     super.key,
-    required this.notes,
-    required this.barCount,
-    required this.width,
-    required this.height,
+    required this.densityList,
+    required this.currentTime,
+    required this.songDuration,
+    required this.onSeek,
   });
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: width,
-      height: height,
+    return GestureDetector(
+      onTapDown: (d) {
+        RenderBox box = context.findRenderObject() as RenderBox;
+        double dy = d.localPosition.dy;
+        double p = dy / box.size.height;
+        onSeek(songDuration * p);
+      },
       child: CustomPaint(
-        painter: _DensityBarPainter(notes: notes, barCount: barCount),
+        size: Size(40, double.infinity),
+        painter: _DensityBarPainter(
+          densityList: densityList,
+          currentTime: currentTime,
+          songDuration: songDuration,
+        ),
       ),
     );
   }
 }
 
 class _DensityBarPainter extends CustomPainter {
-  final List<Note> notes;
-  final int barCount;
+  final List<int> densityList;
+  final double currentTime;
+  final double songDuration;
 
-  _DensityBarPainter({required this.notes, required this.barCount});
+  _DensityBarPainter({
+    required this.densityList,
+    required this.currentTime,
+    required this.songDuration,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
-    double barHeight = size.height / barCount;
-    List<int> density = List.filled(barCount, 0);
-    for (final n in notes) {
-      if (n.bar < barCount && n.bar >= 0) density[n.bar]++;
+    int n = densityList.length;
+    int maxValue = densityList.fold(1, (max, v) => v > max ? v : max);
+    for (int i = 0; i < n; ++i) {
+      double top = (i / n) * size.height;
+      double h = (1 / n) * size.height;
+      double w = (densityList[i] / maxValue) * size.width;
+      canvas.drawRect(
+        Rect.fromLTWH(size.width - w, top, w, h),
+        Paint()..color = Colors.blueAccent.withOpacity(0.7),
+      );
     }
-    int maxDensity = density.fold(1, (a, b) => a > b ? a : b);
-
-    for (int i = 0; i < barCount; i++) {
-      double y = size.height - (i + 1) * barHeight;
-      double barW = size.width * density[i] / (maxDensity == 0 ? 1 : maxDensity);
-      final paint = Paint()..color = Colors.orange;
-      canvas.drawRect(Rect.fromLTWH(0, y, barW, barHeight), paint);
-    }
+    // 当前时间线
+    double py = (currentTime / (songDuration == 0 ? 1 : songDuration)) * size.height;
+    canvas.drawLine(
+      Offset(0, py),
+      Offset(size.width, py),
+      Paint()
+        ..color = Colors.red
+        ..strokeWidth = 2,
+    );
   }
 
   @override
