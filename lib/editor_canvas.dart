@@ -1,35 +1,37 @@
 import 'package:flutter/material.dart';
-import 'dart:math';
 
 enum NoteType { normal, rain }
+
 class Note {
-  double x;
-  double y;
-  double? endY;
-  NoteType type;
-  dynamic beat;
-  bool selected;
+  final double x; // 0~512
+  final int bar;
+  final int beatNum;
+  final int denom;
+  final NoteType type;
+  final int? endBar;
+  final int? endBeatNum;
+  final int? endDenom;
+
   Note({
     required this.x,
-    required this.y,
-    this.endY,
+    required this.bar,
+    required this.beatNum,
+    required this.denom,
     required this.type,
-    required this.beat,
-    this.selected = false,
+    this.endBar,
+    this.endBeatNum,
+    this.endDenom,
   });
-  Note clone() => Note(
-    x: x,
-    y: y,
-    endY: endY,
-    type: type,
-    beat: beat,
-    selected: selected,
-  );
+
+  double get y => (bar + beatNum / denom) * 1280.0;
+  double? get endY => (endBar != null && endBeatNum != null && endDenom != null)
+      ? (endBar! + endBeatNum! / endDenom!) * 1280.0
+      : null;
+  List<int> get beat => [bar, beatNum, denom];
 }
 
 class EditorCanvas extends StatelessWidget {
   final List<Note> notes;
-  final int division;
   final double editorWidth;
   final double scrollOffset;
   final double canvasHeight;
@@ -38,7 +40,6 @@ class EditorCanvas extends StatelessWidget {
   const EditorCanvas({
     super.key,
     required this.notes,
-    required this.division,
     required this.editorWidth,
     required this.scrollOffset,
     required this.canvasHeight,
@@ -51,97 +52,58 @@ class EditorCanvas extends StatelessWidget {
       size: Size(editorWidth, canvasHeight),
       painter: _EditorPainter(
         notes: notes,
-        division: division,
-        canvasSize: Size(editorWidth, canvasHeight),
         scrollOffset: scrollOffset,
+        canvasWidth: editorWidth,
+        canvasHeight: canvasHeight,
       ),
     );
   }
 }
 
-/// 假设 beat 格式为 [measure, offset, division] 或 "1/4" 字符串
-double beatToY(dynamic beat, int division, double pxPerBeat) {
-  if (beat is List && beat.length == 3) {
-    // Malody格式：[小节, 分子, 分母]
-    int bar = beat[0] is int ? beat[0] : int.tryParse(beat[0].toString()) ?? 0;
-    int num = beat[1] is int ? beat[1] : int.tryParse(beat[1].toString()) ?? 0;
-    int denom = beat[2] is int ? beat[2] : int.tryParse(beat[2].toString()) ?? division;
-    double beatInBar = num / denom;
-    double totalBeats = bar * 4 + beatInBar * 4; // 一小节4拍
-    return totalBeats * pxPerBeat;
-  } else if (beat is String && beat.contains('/')) {
-    int denom = int.tryParse(beat.split('/').last) ?? division;
-    double totalBeats = 4.0 * (1.0 / denom);
-    return totalBeats * pxPerBeat;
-  }
-  return 0;
-}
-
-Color getColorForBeatDenom(dynamic beat) {
-  int denom = 4;
-  if (beat is List && beat.length == 3) {
-    denom = beat[2] is int ? beat[2] : int.tryParse(beat[2].toString()) ?? 4;
-  } else if (beat is String && beat.contains('/')) {
-    denom = int.tryParse(beat.split('/').last) ?? 4;
-  }
-  switch (denom) {
-    case 1: return const Color(0xFFFF0000);
-    case 2: return const Color(0xFF00BFFF);
-    case 3:
-    case 6:
-    case 12:
-    case 24: return const Color(0xFF00CC66);
-    case 4: return const Color(0xFFA020F0);
-    case 8:
-    case 16:
-    case 32: return const Color(0xFFFFD700);
-    default: return const Color(0xFFA020F0);
-  }
-}
-
 class _EditorPainter extends CustomPainter {
   final List<Note> notes;
-  final int division;
-  final Size canvasSize;
   final double scrollOffset;
+  final double canvasWidth;
+  final double canvasHeight;
+
   _EditorPainter({
     required this.notes,
-    required this.division,
-    required this.canvasSize,
     required this.scrollOffset,
+    required this.canvasWidth,
+    required this.canvasHeight,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
-    final double pxPerBeat = 50.0;
+    // 绘制背景
+    final bgPaint = Paint()..color = Colors.white;
+    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height), bgPaint);
 
-    // 画布原点设顶端
-    canvas.save();
-    canvas.translate(0, 0);
-
-    // 画分度线
-    for (int i = 0; i < 256; ++i) {
-      double y = i * pxPerBeat - scrollOffset;
-      if (y < 0 || y > canvasSize.height) continue;
-      canvas.drawLine(
-        Offset(0, y),
-        Offset(canvasSize.width, y),
-        Paint()..color = Colors.grey.withOpacity(0.3),
-      );
+    // 绘制分割线（每1280像素为一个小节）
+    final barLinePaint = Paint()
+      ..color = Colors.grey.withOpacity(0.4)
+      ..strokeWidth = 2;
+    for (double y = -scrollOffset % 1280; y < canvasHeight; y += 1280) {
+      canvas.drawLine(Offset(0, y), Offset(canvasWidth, y), barLinePaint);
     }
 
+    // 绘制音符
     for (final note in notes) {
-      double x = note.x / 512.0 * canvasSize.width;
-      double y = beatToY(note.beat, division, pxPerBeat) - scrollOffset;
-      if (note.type == NoteType.rain && note.endY != null) {
-        double y2 = beatToY(note.endY, division, pxPerBeat) - scrollOffset;
-        final rect = Rect.fromLTRB(0, min(y, y2), canvasSize.width, max(y, y2));
-        canvas.drawRect(rect, Paint()..color = const Color(0x8842A5F5));
-      } else {
-        canvas.drawCircle(Offset(x, y), 10, Paint()..color = getColorForBeatDenom(note.beat));
+      final double x = note.x / 512.0 * canvasWidth;
+      final double y = note.y - scrollOffset;
+      if (y < -100 || y > canvasHeight + 100) continue; // 可见区域外不渲染
+
+      if (note.type == NoteType.normal) {
+        // 普通音符
+        canvas.drawCircle(Offset(x, y), 10, Paint()..color = Colors.blue);
+      } else if (note.type == NoteType.rain && note.endY != null) {
+        final double endY = note.endY! - scrollOffset;
+        canvas.drawRect(
+          Rect.fromLTRB(x - 8, y, x + 8, endY),
+          Paint()..color = Colors.green.withOpacity(0.7),
+        );
       }
     }
-    canvas.restore();
   }
 
   @override
